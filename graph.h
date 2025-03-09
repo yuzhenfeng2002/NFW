@@ -44,7 +44,8 @@ template<typename cost_type>
 class Graph {
 public:
     typedef boost::adjacency_list<
-        boost::vecS, boost::vecS, boost::directedS, vertex_info, edge_info<cost_type>> graph_type;
+        boost::vecS, boost::vecS, boost::directedS, vertex_info,
+    boost::property<boost::edge_index_t, std::size_t, edge_info<cost_type>>> graph_type;
     graph_type g;
     typedef typename graph_type::vertex_descriptor vertex_type;
     typedef typename graph_type::edge_descriptor edge_type;

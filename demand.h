@@ -71,6 +71,9 @@ struct OD {
 
     std::list<Path<cost_type>> paths;
 
+    boost::numeric::ublas::compressed_matrix<double> link_flows;
+    boost::numeric::ublas::compressed_matrix<double> new_link_flows;
+
     OD(const typename Graph<cost_type>::vertex_type& origin,
         const typename Graph<cost_type>::vertex_type& destination,
         const double& flow) : origin(origin), destination(destination), flow(flow) {}
@@ -81,6 +84,7 @@ template<typename cost_type>
 class OD_set {
 public:
     std::vector<OD<cost_type>> od_pairs;
+    std::vector<std::vector<OD<cost_type>*>> ods_from_origin;
     int num_od_pairs{0};
 
     void add_od_pair(const typename Graph<cost_type>::vertex_type& origin,
@@ -89,6 +93,11 @@ public:
         OD<cost_type> od(origin, destination, flow);
         od_pairs.push_back(od);
         num_od_pairs++;
+
+        if (origin >= ods_from_origin.size()) {
+            ods_from_origin.resize(origin + 1);
+        }
+        ods_from_origin[origin].push_back(&od_pairs.back());
     }
 };
 

@@ -26,14 +26,16 @@ int main()
 
     auto initialization_start = std::chrono::high_resolution_clock::now();
     // UE_GP<bpr> ue(graph, od_set);
-    UE_FW<bpr> ue(graph, od_set);
+    // UE_FW<bpr> ue(graph, od_set);
+    UE_NFW<bpr> ue(graph, od_set);
     ue.initialization();
     auto initialization_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> initialization_elapsed = initialization_end - initialization_start;
 
     auto equilibration_start = std::chrono::high_resolution_clock::now();
     // ue.gradient_projection(MAX_ITER, EPS_EQ, STEP_SIZE);
-    ue.frank_wolfe(MAX_ITER, EPS_EQ);
+    // ue.frank_wolfe(MAX_ITER, EPS_EQ);
+    ue.newton_frank_wolfe(MAX_ITER, EPS_EQ);
     auto equilibration_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> equilibration_elapsed = equilibration_end - equilibration_start;
 
