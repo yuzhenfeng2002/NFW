@@ -146,6 +146,10 @@ void read_demand_from_file(const std::string& filename,
             }
         }
     }
+    od_set.ods_from_origin.resize(graph.num_vertices);
+    for (auto& od : od_set.od_pairs) {
+        od_set.ods_from_origin[od.origin].push_back(&od);
+    }
 }
 
 #endif //IO_H

@@ -93,11 +93,6 @@ public:
         OD<cost_type> od(origin, destination, flow);
         od_pairs.push_back(od);
         num_od_pairs++;
-
-        if (origin >= ods_from_origin.size()) {
-            ods_from_origin.resize(origin + 1);
-        }
-        ods_from_origin[origin].push_back(&od_pairs.back());
     }
 };
 
