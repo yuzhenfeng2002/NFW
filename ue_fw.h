@@ -127,7 +127,7 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
 
         error = std::abs(current_tstt - current_sptt) / current_sptt;
         num_iterations++;
-        if (num_iterations % 100 == 0) {
+        if (num_iterations % 1 == 0) {
             std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
         }
     }

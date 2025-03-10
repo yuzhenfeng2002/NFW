@@ -37,8 +37,6 @@ private:
     double current_sptt{};
 };
 
-
-
 template<typename cost_type>
 double UE_NFW<cost_type>::exact_line_search(const Graph<cost_type> &graph, const double &eps) {
     auto edges = boost::edges(graph.g);
@@ -110,17 +108,16 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         print_link_flow();
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
             MQCF<cost_type> mqcf(graph, od_set, i);
-            mqcf.basic_algorithm(100, 1e-6);
+            mqcf.basic_algorithm(100, eps*0.1);
             auto qc_edges = boost::edges(mqcf.QCgraph);
             for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
                 auto& qc_edge_info = mqcf.QCgraph[*it];
                 auto source = boost::source(*it, mqcf.QCgraph);
                 auto target = boost::target(*it, mqcf.QCgraph);
-                if (!qc_edge_info.is_reverse) {
-                    auto edge = boost::edge(source, target, graph.g).first;
-                    auto& edge_info = graph.g[edge];
-                    edge_info.new_flow = qc_edge_info.flow;
-                }
+
+                auto edge = boost::edge(source, target, graph.g).first;
+                auto& edge_info = graph.g[edge];
+                edge_info.new_flow = qc_edge_info.flow;
             }
         }
 
@@ -142,7 +139,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
         error = std::abs(current_tstt - current_sptt) / current_sptt;
         num_iterations++;
-        if (num_iterations % 100 == 0) {
+        if (num_iterations % 1 == 0) {
             std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
         }
     }

@@ -7,7 +7,6 @@
 
 #include <iostream>
 #include <vector>
-#include <queue>
 #include <boost/graph/adjacency_list.hpp>
 #include <cmath>
 #include "graph.h"
@@ -22,18 +21,18 @@ struct EdgeProps {
     double c{0};           // Quadratic coefficient C_ij(f) = c*f² + d*f
     double d{0};           // Linear coefficient
     double flow{0};        // Current flow f_ij
-    bool is_reverse{false};    // Marks reverse edges
+    double reverse_flow{0};    // Marks reverse edges
 };
 
 typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, NodeProps, EdgeProps> QCGraph;
-typedef typename boost::graph_traits<QCGraph>::vertex_descriptor QCVertex;
-typedef typename boost::graph_traits<QCGraph>::edge_descriptor QCEdge;
+typedef boost::graph_traits<QCGraph>::vertex_descriptor QCVertex;
+typedef boost::graph_traits<QCGraph>::edge_descriptor QCEdge;
 
 template<typename cost_type>
 class MQCF {
 public:
     QCGraph QCgraph;
-    int origin;
+    unsigned long origin;
     std::vector<std::pair<int, double>> destinations;
 
     MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int& origin);
@@ -42,9 +41,10 @@ public:
 private:
     double compute_initial_delta();
     void adjust_flow(const double& delta);
-    void build_residual_graph(double Delta, std::vector<QCEdge>& residual_edges);
     void augment_flow(const std::vector<QCVertex>& pred, double delta, QCVertex& s, QCVertex& t);
     void update_potentials(const std::vector<double>& dist);
+    void print_edges();
+    void print_vertices();
 };
 
 template<typename cost_type>
@@ -55,17 +55,6 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         auto v = *vp.first;
         boost::add_vertex(QCgraph);
     }
-    for (auto ep = boost::edges(graph.g); ep.first != ep.second; ++ep.first) {
-        auto e = *ep.first;
-        auto source = boost::source(e, graph.g);
-        auto target = boost::target(e, graph.g);
-        auto& edge_info = graph.g[e];
-
-        QCEdge qc_edge = boost::add_edge(source, target, QCgraph).first;
-        QCgraph[qc_edge].c = edge_info.cost_derivative / 2; // Assuming cost is the quadratic coefficient
-        QCgraph[qc_edge].d = edge_info.cost; // Set linear coefficient to 0 or appropriate value
-        QCgraph[qc_edge].is_reverse = false;
-    }
 
     for (auto od : od_set.ods_from_origin[origin]) {
         auto destination = od->destination;
@@ -73,17 +62,20 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         destinations.push_back(std::make_pair(destination, flow));
         QCgraph[destination].demand += flow;
         QCgraph[destination].excess -= flow;
+        QCgraph[origin].demand -= flow;
         QCgraph[origin].excess += flow;
     }
 
-    auto edges = boost::edges(graph.g);
-    for (auto it = edges.first; it != edges.second; ++it) {
-        auto edge = *it;
-        auto& edge_info = graph.g[edge];
-        auto source = boost::source(edge, graph.g);
-        auto target = boost::target(edge, graph.g);
-        auto qc_edge = boost::edge(source, target, QCgraph).first;
+    for (auto ep = boost::edges(graph.g); ep.first != ep.second; ++ep.first) {
+        auto e = *ep.first;
+        auto source = boost::source(e, graph.g);
+        auto target = boost::target(e, graph.g);
+        auto& edge_info = graph.g[e];
+
+        QCEdge qc_edge = boost::add_edge(source, target, QCgraph).first;
         auto& qc_edge_info = QCgraph[qc_edge];
+        qc_edge_info.c = edge_info.cost_derivative / 2;
+        qc_edge_info.d = edge_info.cost;
         for (auto od : od_set.ods_from_origin[origin]) {
             qc_edge_info.d -= edge_info.cost_derivative * od->link_flows(source, target);
         }
@@ -92,10 +84,7 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
 
 template<typename cost_type>
 double MQCF<cost_type>::compute_initial_delta() {
-    double max_excess = 0;
-    for (auto& dest : destinations) {
-        max_excess += dest.second;
-    }
+    double max_excess = QCgraph[origin].excess;
     int n = boost::num_vertices(QCgraph);
     int m = boost::num_edges(QCgraph);
     return max_excess / (2 * n + m); // Simplified heuristic
@@ -112,9 +101,14 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
 
         if (C_prime < QCgraph[v].pi - QCgraph[u].pi) {
             QCgraph[e].flow += delta;
+            QCgraph[u].excess -= delta;
+            QCgraph[v].excess += delta;
         } else if (QCgraph[e].flow >= delta &&
                    (2 * QCgraph[e].c * (QCgraph[e].flow - delta) + QCgraph[e].d > QCgraph[v].pi - QCgraph[u].pi)) {
             QCgraph[e].flow -= delta;
+            // QCgraph[e].reverse_flow -= delta;
+            QCgraph[u].excess += delta;
+            QCgraph[v].excess -= delta;
         }
         // Else keep flow unchanged
     }
@@ -129,16 +123,30 @@ void MQCF<cost_type>::augment_flow(const std::vector<QCVertex>& pred, double del
     while (cur != s) {
         QCVertex prev = pred[cur];
 
+        bool is_inverse = false;
         // Find edge between prev->cur
         auto er = boost::edge(prev, cur, QCgraph);
+        auto er2 = boost::edge(cur, prev, QCgraph);
         if (!er.second) {
-            throw std::runtime_error("Invalid predecessor path");
+            er = er2;
+            is_inverse = true;
+        }
+        else {
+            if (er2.second) {
+                double cost1 = 2 * QCgraph[er.first].c * (QCgraph[er.first].flow + delta) + QCgraph[er.first].d;
+                double cost2 = 2 * QCgraph[er2.first].c * (QCgraph[er2.first].flow + delta) - QCgraph[er2.first].d;
+                if (QCgraph[er2.first].flow >= delta && cost2 < cost1) {
+                    er = er2;
+                    is_inverse = true;
+                }
+            }
         }
         QCEdge e = er.first;
 
-        if (QCgraph[e].is_reverse) {
+        if (is_inverse) {
             // Reverse edge: decrease original edge's flow
-            QCEdge orig = boost::edge(cur, prev, QCgraph).first;
+            QCEdge orig = er2.first;
+            // QCgraph[orig].reverse_flow += delta;
             QCgraph[orig].flow -= delta;
 
             // Update excess for original nodes
@@ -154,32 +162,6 @@ void MQCF<cost_type>::augment_flow(const std::vector<QCVertex>& pred, double del
         }
 
         cur = prev;
-    }
-}
-
-// Updated residual network construction
-template<typename cost_type>
-void MQCF<cost_type>::build_residual_graph(double Delta, std::vector<QCEdge>& residual_edges) {
-    residual_edges.clear();
-    auto edges = boost::edges(QCgraph);
-
-    for (auto eit = edges.first; eit != edges.second; ++eit) {
-        QCEdge e = *eit;
-
-        // Add forward edge if in original graph
-        if (!QCgraph[e].is_reverse) {
-            residual_edges.push_back(e);
-
-            // Add reverse edge if residual capacity >= Δ
-            if (QCgraph[e].flow >= Delta) {
-                QCEdge reverse_e = boost::add_edge(target(e, QCgraph), source(e, QCgraph), QCgraph).first;
-                QCgraph[reverse_e].is_reverse = true;
-                QCgraph[reverse_e].c = QCgraph[e].c;
-                QCgraph[reverse_e].d = -QCgraph[e].d;
-
-                residual_edges.push_back(reverse_e);
-            }
-        }
     }
 }
 
@@ -200,12 +182,11 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
     int m = boost::num_edges(QCgraph);
 
     int iteration = 0;
+
     while (Delta > epsilon / (2 * n + m + 1) && iteration < max_iter) {
         iteration += 1;
         // Main phase loop
-        std::vector<QCEdge> residual_edges;
         while (true) {
-            build_residual_graph(Delta, residual_edges);
             // Find S(Δ) and T(Δ)
             std::vector<QCVertex> S, T;
             auto vertices = boost::vertices(QCgraph);
@@ -222,30 +203,66 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             dist[S[0]] = 0;
 
             // Relax edges (Bellman-Ford)
-            for (size_t i = 0; i < n; ++i) {
-                for (auto& e : residual_edges) {
+            auto edges = boost::edges(QCgraph);
+            for (size_t i = 0; i < n + 1; ++i) {
+                for (auto eit = edges.first; eit != edges.second; ++eit) {
+                    QCEdge e = *eit;
+                    auto& edge_info = QCgraph[e];
                     QCVertex u = source(e, QCgraph);
                     QCVertex v = target(e, QCgraph);
-                    double cost = 2 * QCgraph[e].c * (QCgraph[e].flow + Delta) + QCgraph[e].d;
-                    if (dist[u] + cost <= dist[v]) {
+                    double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
+                    double reverse_cost = 2 * edge_info.c * (edge_info.flow + Delta) - edge_info.d;
+                    if (dist[u] + cost < dist[v] - 1e-10) {
                         dist[v] = dist[u] + cost;
                         pred[v] = u;
+                    }
+                    if (edge_info.flow >= Delta){
+                        if (dist[v] + reverse_cost < dist[u] - 1e-10) {
+                            dist[u] = dist[v] + reverse_cost;
+                            pred[u] = v;
+                        }
                     }
                 }
             }
 
             update_potentials(dist);  // Update node potentials
 
+            // print_vertices();
+            // print_edges();
             // Augment flow along shortest path
-            for (QCVertex t : T) {
-                if (dist[t] != INFINITY) {
-                    augment_flow(pred, Delta, S[0], t);
-                }
+            if (dist[T[0]] != INFINITY) {
+                augment_flow(pred, Delta, S[0], T[0]);
             }
+
+            // print_edges();
         }
 
-        adjust_flow(Delta/2);
+        adjust_flow(Delta / 2);
         Delta /= 2;
+    }
+    // print_edges();
+}
+
+template<typename cost_type> void MQCF<cost_type>::print_vertices() {
+    std::cout << std::left << std::setw(10) << "ID" << std::left << std::setw(10) << "Excess" << std::endl;
+    auto vertices = boost::vertices(QCgraph);
+    for (auto it = vertices.first; it != vertices.second; ++it) {
+        std::cout << std::left << std::setw(10) << *it << std::left << std::setw(10) << QCgraph[*it].excess << std::endl;
+    }
+}
+
+template<typename cost_type> void MQCF<cost_type>::print_edges() {
+    std::cout << std::left << std::setw(10) << "Source"
+              << std::left << std::setw(10) << "Target"
+              << std::left << std::setw(10) << "Flow" << std::endl;
+    auto edges = boost::edges(QCgraph);
+    for (auto it = edges.first; it != edges.second; ++it) {
+        auto source = boost::source(*it, QCgraph);
+        auto target = boost::target(*it, QCgraph);
+        const auto& edge_info = QCgraph[*it];
+        std::cout << std::left << std::setw(10) << source
+                  << std::left << std::setw(10) << target
+                  << std::left << std::setw(10) << edge_info.flow << std::endl;
     }
 }
 
