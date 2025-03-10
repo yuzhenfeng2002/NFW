@@ -107,8 +107,9 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
         print_link_flow();
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
+            if (od_set.ods_from_origin[i].empty()) continue;
             MQCF<cost_type> mqcf(graph, od_set, i);
-            mqcf.basic_algorithm(100, eps*0.1);
+            mqcf.basic_algorithm(2, eps*0.1);
             auto qc_edges = boost::edges(mqcf.QCgraph);
             for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
                 auto& qc_edge_info = mqcf.QCgraph[*it];
@@ -117,12 +118,13 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
                 auto edge = boost::edge(source, target, graph.g).first;
                 auto& edge_info = graph.g[edge];
-                edge_info.new_flow = qc_edge_info.flow;
+                edge_info.new_flow += qc_edge_info.flow;
             }
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
         double step_size = exact_line_search(graph, eps);
+        // double step_size = 0.2;
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;

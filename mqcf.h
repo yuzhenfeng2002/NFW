@@ -41,7 +41,7 @@ public:
 private:
     double compute_initial_delta();
     void adjust_flow(const double& delta);
-    void augment_flow(const std::vector<QCVertex>& pred, double delta, QCVertex& s, QCVertex& t);
+    void augment_flow(const std::vector<std::pair<QCEdge, bool>>& pred, double delta, QCVertex& s, QCVertex& t);
     void update_potentials(const std::vector<double>& dist);
     void print_edges();
     void print_vertices();
@@ -103,7 +103,7 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
             QCgraph[e].flow += delta;
             QCgraph[u].excess -= delta;
             QCgraph[v].excess += delta;
-        } else if (-QCgraph[e].flow >= delta &&
+        } else if (QCgraph[e].flow >= delta &&
                    (2 * QCgraph[e].c * (QCgraph[e].flow - delta) + QCgraph[e].d > QCgraph[v].pi - QCgraph[u].pi)) {
             QCgraph[e].flow -= delta;
             // QCgraph[e].reverse_flow -= delta;
@@ -116,42 +116,22 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
 
 // Complete flow augmentation implementation
 template<typename cost_type>
-void MQCF<cost_type>::augment_flow(const std::vector<QCVertex>& pred, double delta, QCVertex& s, QCVertex& t) {
+void MQCF<cost_type>::augment_flow(const std::vector<std::pair<QCEdge, bool>>& pred, double delta, QCVertex& s, QCVertex& t) {
     QCVertex cur = t;
 
     // Walk the path from t to s
     while (cur != s) {
-        QCVertex prev = pred[cur];
-
-        bool is_inverse = false;
-        // Find edge between prev->cur
-        auto er = boost::edge(prev, cur, QCgraph);
-        auto er2 = boost::edge(cur, prev, QCgraph);
-        if (!er.second) {
-            er = er2;
-            is_inverse = true;
-        }
-        else {
-            if (er2.second) {
-                double cost1 = 2 * QCgraph[er.first].c * (QCgraph[er.first].flow + delta) + QCgraph[er.first].d;
-                double cost2 = 2 * QCgraph[er2.first].c * (-QCgraph[er2.first].flow + delta) - QCgraph[er2.first].d;
-                if (QCgraph[er2.first].flow >= delta && cost2 < cost1) {
-                    er = er2;
-                    is_inverse = true;
-                }
-            }
-        }
-        QCEdge e = er.first;
+        QCEdge e = pred[cur].first;
+        bool is_inverse = pred[cur].second;
+        QCVertex prev = is_inverse ? target(e, QCgraph) : source(e, QCgraph);
 
         if (is_inverse) {
-            // Reverse edge: decrease original edge's flow
-            QCEdge orig = er2.first;
             // QCgraph[orig].reverse_flow += delta;
-            QCgraph[orig].flow -= delta;
+            QCgraph[e].flow -= delta;
 
             // Update excess for original nodes
-            QCgraph[source(orig, QCgraph)].excess += delta;
-            QCgraph[target(orig, QCgraph)].excess -= delta;
+            QCgraph[source(e, QCgraph)].excess += delta;
+            QCgraph[target(e, QCgraph)].excess -= delta;
         } else {
             // Forward edge: increase flow
             QCgraph[e].flow += delta;
@@ -199,12 +179,26 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
 
             // Find shortest path using Bellman-Ford (simple approach)
             std::vector<double> dist(n, INFINITY);
-            std::vector<QCVertex> pred(n);
+            std::vector<std::pair<QCEdge, bool>> pred(n);
             dist[S[0]] = 0;
+            std::vector<QCVertex> node_pred(n);
 
             // Relax edges (Bellman-Ford)
+            // print_edges();
             auto edges = boost::edges(QCgraph);
-            for (size_t i = 0; i < n + 1; ++i) {
+
+            // for (auto eit = edges.first; eit != edges.second; ++eit) {
+            //     QCEdge e = *eit;
+            //     auto& edge_info = QCgraph[e];
+            //     QCVertex u = source(e, QCgraph);
+            //     QCVertex v = target(e, QCgraph);
+            //     double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
+            //     double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
+            //     std::cout << u << " " << v << " " << cost << " " << reverse_cost << std::endl;
+            // }
+
+
+            for (size_t i = 0; i < n; ++i) {
                 for (auto eit = edges.first; eit != edges.second; ++eit) {
                     QCEdge e = *eit;
                     auto& edge_info = QCgraph[e];
@@ -214,12 +208,14 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
                     double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
                     if (dist[u] + cost < dist[v] - 1e-10) {
                         dist[v] = dist[u] + cost;
-                        pred[v] = u;
+                        pred[v] = {e, false};
+                        node_pred[v] = u;
                     }
                     if (edge_info.flow >= Delta){
                         if (dist[v] - reverse_cost < dist[u] - 1e-10) {
-                            dist[u] = dist[v] + reverse_cost;
-                            pred[u] = v;
+                            dist[u] = dist[v] - reverse_cost;
+                            pred[u] = {e, true};
+                            node_pred[u] = v;
                         }
                     }
                 }
@@ -236,10 +232,40 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             // print_edges();
         }
 
+        std::vector<double> dist(n, INFINITY);
+        std::vector<std::pair<QCEdge, bool>> pred(n);
+        dist[origin] = 0;
+        std::vector<QCVertex> node_pred(n);
+        auto edges = boost::edges(QCgraph);
+
+        for (size_t i = 0; i < n; ++i) {
+            for (auto eit = edges.first; eit != edges.second; ++eit) {
+                QCEdge e = *eit;
+                auto& edge_info = QCgraph[e];
+                QCVertex u = source(e, QCgraph);
+                QCVertex v = target(e, QCgraph);
+                double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
+                double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
+                if (dist[u] + cost < dist[v]) {
+                    dist[v] = dist[u] + cost;
+                    pred[v] = {e, false};
+                    node_pred[v] = u;
+                }
+                if (edge_info.flow >= Delta){
+                    if (dist[v] - reverse_cost < dist[u]) {
+                        dist[u] = dist[v] - reverse_cost;
+                        pred[u] = {e, true};
+                        node_pred[u] = v;
+                    }
+                }
+            }
+        }
+        update_potentials(dist);  // Update node potentials
+
         adjust_flow(Delta / 2);
         Delta /= 2;
     }
-    // print_edges();
+    print_edges();
 }
 
 template<typename cost_type> void MQCF<cost_type>::print_vertices() {
