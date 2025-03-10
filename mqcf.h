@@ -103,7 +103,7 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
             QCgraph[e].flow += delta;
             QCgraph[u].excess -= delta;
             QCgraph[v].excess += delta;
-        } else if (QCgraph[e].flow >= delta &&
+        } else if (-QCgraph[e].flow >= delta &&
                    (2 * QCgraph[e].c * (QCgraph[e].flow - delta) + QCgraph[e].d > QCgraph[v].pi - QCgraph[u].pi)) {
             QCgraph[e].flow -= delta;
             // QCgraph[e].reverse_flow -= delta;
@@ -134,7 +134,7 @@ void MQCF<cost_type>::augment_flow(const std::vector<QCVertex>& pred, double del
         else {
             if (er2.second) {
                 double cost1 = 2 * QCgraph[er.first].c * (QCgraph[er.first].flow + delta) + QCgraph[er.first].d;
-                double cost2 = 2 * QCgraph[er2.first].c * (QCgraph[er2.first].flow + delta) - QCgraph[er2.first].d;
+                double cost2 = 2 * QCgraph[er2.first].c * (-QCgraph[er2.first].flow + delta) - QCgraph[er2.first].d;
                 if (QCgraph[er2.first].flow >= delta && cost2 < cost1) {
                     er = er2;
                     is_inverse = true;
@@ -211,13 +211,13 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
                     QCVertex u = source(e, QCgraph);
                     QCVertex v = target(e, QCgraph);
                     double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
-                    double reverse_cost = 2 * edge_info.c * (edge_info.flow + Delta) - edge_info.d;
+                    double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
                     if (dist[u] + cost < dist[v] - 1e-10) {
                         dist[v] = dist[u] + cost;
                         pred[v] = u;
                     }
                     if (edge_info.flow >= Delta){
-                        if (dist[v] + reverse_cost < dist[u] - 1e-10) {
+                        if (dist[v] - reverse_cost < dist[u] - 1e-10) {
                             dist[u] = dist[v] + reverse_cost;
                             pred[u] = v;
                         }
@@ -233,7 +233,6 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             if (dist[T[0]] != INFINITY) {
                 augment_flow(pred, Delta, S[0], T[0]);
             }
-
             // print_edges();
         }
 
