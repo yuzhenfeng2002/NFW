@@ -21,7 +21,6 @@ struct EdgeProps {
     double c{0};           // Quadratic coefficient C_ij(f) = c*f² + d*f
     double d{0};           // Linear coefficient
     double flow{0};        // Current flow f_ij
-    double reverse_flow{0};    // Marks reverse edges
 };
 
 typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, NodeProps, EdgeProps> QCGraph;
@@ -37,7 +36,7 @@ public:
 
     MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int& origin);
 
-    void basic_algorithm(int max_iter=20, double epsilon=1e-3);
+    void basic_algorithm(int max_iter=100, double epsilon=1e-6);
 private:
     double compute_initial_delta();
     void adjust_flow(const double& delta);
@@ -76,9 +75,8 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         auto& qc_edge_info = QCgraph[qc_edge];
         qc_edge_info.c = edge_info.cost_derivative / 2;
         qc_edge_info.d = edge_info.cost;
-        for (auto od : od_set.ods_from_origin[origin]) {
-            qc_edge_info.d -= edge_info.cost_derivative * od->link_flows(source, target);
-        }
+
+        qc_edge_info.d -= edge_info.cost_derivative * od_set.link_flows[origin](source, target);
     }
 }
 
@@ -87,7 +85,7 @@ double MQCF<cost_type>::compute_initial_delta() {
     double max_excess = QCgraph[origin].excess;
     int n = boost::num_vertices(QCgraph);
     int m = boost::num_edges(QCgraph);
-    return max_excess / (2 * n + m); // Simplified heuristic
+    return max_excess / (2 * n + m);
 }
 
 template<typename cost_type>
@@ -106,7 +104,6 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
         } else if (QCgraph[e].flow >= delta &&
                    (2 * QCgraph[e].c * (QCgraph[e].flow - delta) + QCgraph[e].d > QCgraph[v].pi - QCgraph[u].pi)) {
             QCgraph[e].flow -= delta;
-            // QCgraph[e].reverse_flow -= delta;
             QCgraph[u].excess += delta;
             QCgraph[v].excess -= delta;
         }
@@ -114,12 +111,10 @@ void MQCF<cost_type>::adjust_flow(const double& delta) {
     }
 }
 
-// Complete flow augmentation implementation
 template<typename cost_type>
 void MQCF<cost_type>::augment_flow(const std::vector<std::pair<QCEdge, bool>>& pred, double delta, QCVertex& s, QCVertex& t) {
     QCVertex cur = t;
 
-    // Walk the path from t to s
     while (cur != s) {
         QCEdge e = pred[cur].first;
         bool is_inverse = pred[cur].second;
@@ -129,14 +124,12 @@ void MQCF<cost_type>::augment_flow(const std::vector<std::pair<QCEdge, bool>>& p
             // QCgraph[orig].reverse_flow += delta;
             QCgraph[e].flow -= delta;
 
-            // Update excess for original nodes
             QCgraph[source(e, QCgraph)].excess += delta;
             QCgraph[target(e, QCgraph)].excess -= delta;
         } else {
             // Forward edge: increase flow
             QCgraph[e].flow += delta;
 
-            // Update excess for endpoints
             QCgraph[source(e, QCgraph)].excess -= delta;
             QCgraph[target(e, QCgraph)].excess += delta;
         }
@@ -145,7 +138,6 @@ void MQCF<cost_type>::augment_flow(const std::vector<std::pair<QCEdge, bool>>& p
     }
 }
 
-// Enhanced potential update
 template<typename cost_type>
 void MQCF<cost_type>::update_potentials(const std::vector<double>& dist) {
     auto vertices = boost::vertices(QCgraph);
@@ -221,15 +213,10 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
                 }
             }
 
-            update_potentials(dist);  // Update node potentials
-
-            // print_vertices();
-            // print_edges();
-            // Augment flow along shortest path
+            update_potentials(dist);
             if (dist[T[0]] != INFINITY) {
                 augment_flow(pred, Delta, S[0], T[0]);
             }
-            // print_edges();
         }
 
         std::vector<double> dist(n, INFINITY);
@@ -265,7 +252,7 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
         adjust_flow(Delta / 2);
         Delta /= 2;
     }
-    print_edges();
+    // print_edges();
 }
 
 template<typename cost_type> void MQCF<cost_type>::print_vertices() {

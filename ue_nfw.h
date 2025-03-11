@@ -77,17 +77,91 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     double error = std::numeric_limits<double>::max();
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     while (num_iterations < max_iter_num && error > eps) {
+        current_sptt = 0; current_tstt = 0;
         auto edges = boost::edges(graph.g);
         for (auto it = edges.first; it != edges.second; ++it) {
             auto& edge_info = graph.g[*it];
             edge_info.new_flow = 0;
         }
 
+        for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
+            if (od_set.ods_from_origin[i].empty()) continue;
+            MQCF<cost_type> mqcf(graph, od_set, i);
+
+            /* For debugging start*/
+            // Graph<quad> subgraph;
+            // subgraph.num_edges = boost::num_vertices(graph.g);
+            // subgraph.num_vertices = boost::num_vertices(graph.g);
+            // auto vertices = boost::vertices(graph.g);
+            // for (auto it = vertices.first; it != vertices.second; ++it) {
+            //     auto vertex = *it;
+            //     boost::add_vertex(subgraph.g);
+            // }
+            // auto edges = boost::edges(graph.g);
+            // for (auto it = edges.first; it != edges.second; ++it) {
+            //     auto edge = *it;
+            //     auto source = boost::source(edge, graph.g);
+            //     auto target = boost::target(edge, graph.g);
+            //     boost::add_edge(source, target, subgraph.g);
+            // }
+            // auto sub_edges = boost::edges(subgraph.g);
+            // for (auto it = sub_edges.first; it != sub_edges.second; ++it) {
+            //     auto edge = *it;
+            //     auto source = boost::source(edge, graph.g);
+            //     auto target = boost::target(edge, graph.g);
+            //     auto& edge_info = graph.g[edge];
+            //     auto sub_edge = boost::edge(source, target, subgraph.g).first;
+            //     auto& sub_edge_info = subgraph.g[sub_edge];
+            //     auto sub_mqcf_edge = boost::edge(source, target, mqcf.QCgraph).first;
+            //     auto& sub_mqcf_edge_info = mqcf.QCgraph[sub_mqcf_edge];
+            //     sub_edge_info.cost_fun.initialize(sub_mqcf_edge_info.c, sub_mqcf_edge_info.d);
+            // }
+            // OD_set<quad> sub_od_set;
+            // for (auto& od : od_set.ods_from_origin[i]) {
+            //     sub_od_set.add_od_pair(od->origin, od->destination, od->flow);
+            // }
+            // UE_GP<quad> sub_ue_fw(subgraph, sub_od_set);
+            // sub_ue_fw.initialization();
+            // sub_ue_fw.gradient_projection(100, 1e-6);
+            // sub_ue_fw.print_link_flow();
+            /* For debugging end*/
+
+            mqcf.basic_algorithm(1000, eps * 0.1);
+            auto qc_edges = boost::edges(mqcf.QCgraph);
+
+            od_set.new_link_flows[i].resize(graph.num_vertices, graph.num_vertices, false);
+            for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
+                auto& qc_edge_info = mqcf.QCgraph[*it];
+                auto source = boost::source(*it, mqcf.QCgraph);
+                auto target = boost::target(*it, mqcf.QCgraph);
+
+                auto edge = boost::edge(source, target, graph.g).first;
+                auto& edge_info = graph.g[edge];
+                edge_info.new_flow += qc_edge_info.flow;
+                od_set.new_link_flows[i](source, target) = qc_edge_info.flow;
+            }
+        }
+
+        // double step_size = 2.0 / (num_iterations + 2);
+        double step_size = exact_line_search(graph, eps * 0.1);
+
+        for (auto it = edges.first; it != edges.second; ++it) {
+            auto edge = *it;
+            auto source = boost::source(edge, graph.g);
+            auto target = boost::target(edge, graph.g);
+            auto& edge_info = graph.g[edge];
+            edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
+            current_tstt += edge_info.flow * edge_info.cost;
+        }
+
+        for (size_t i = 0; i < od_set.link_flows.size(); ++i) {
+            od_set.link_flows[i] = od_set.link_flows[i] * (1 - step_size) + od_set.new_link_flows[i] * step_size;
+        }
+
         std::vector<double> distances(boost::num_vertices(graph.g));
         std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
         int last_origin_id = -1;
 
-        current_sptt = 0; current_tstt = 0;
         for (auto& od : od_set.od_pairs) {
             auto origin = od.origin;
             auto destination = od.destination;
@@ -105,40 +179,6 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             current_sptt += flow * path.cost;
         }
 
-        print_link_flow();
-        for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
-            if (od_set.ods_from_origin[i].empty()) continue;
-            MQCF<cost_type> mqcf(graph, od_set, i);
-            mqcf.basic_algorithm(2, eps*0.1);
-            auto qc_edges = boost::edges(mqcf.QCgraph);
-            for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
-                auto& qc_edge_info = mqcf.QCgraph[*it];
-                auto source = boost::source(*it, mqcf.QCgraph);
-                auto target = boost::target(*it, mqcf.QCgraph);
-
-                auto edge = boost::edge(source, target, graph.g).first;
-                auto& edge_info = graph.g[edge];
-                edge_info.new_flow += qc_edge_info.flow;
-            }
-        }
-
-        // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps);
-        // double step_size = 0.2;
-
-        for (auto it = edges.first; it != edges.second; ++it) {
-            auto edge = *it;
-            auto source = boost::source(edge, graph.g);
-            auto target = boost::target(edge, graph.g);
-            auto& edge_info = graph.g[edge];
-            edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
-            current_tstt += edge_info.flow * edge_info.cost;
-        }
-
-        for (auto& od : od_set.od_pairs) {
-            od.link_flows = od.link_flows * (1 - step_size) + od.new_link_flows * step_size;
-        }
-
         error = std::abs(current_tstt - current_sptt) / current_sptt;
         num_iterations++;
         if (num_iterations % 1 == 0) {
@@ -153,6 +193,8 @@ void UE_NFW<cost_type>::initialization() {
     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
     int last_origin_id = -1;
 
+    od_set.initialize_link_flow_matrices(graph.num_vertices);
+
     for (auto& od : od_set.od_pairs) {
         auto origin = od.origin;
         auto destination = od.destination;
@@ -166,13 +208,10 @@ void UE_NFW<cost_type>::initialization() {
         path.initialize(graph, predecessors, origin, destination);
         update_flow_4path(path, 0, flow);
 
-        od.link_flows.resize(graph.num_vertices, graph.num_vertices, false);
-        od.new_link_flows.resize(graph.num_vertices, graph.num_vertices, false);
-
         for (auto& edge : path.edge_list) {
             auto source = boost::source(edge, graph.g);
             auto target = boost::target(edge, graph.g);
-            od.link_flows(source, target) += flow;
+            od_set.link_flows[origin](source, target) += flow;
         }
     }
 }
