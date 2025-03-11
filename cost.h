@@ -77,4 +77,33 @@ struct linear {
     }
 };
 
+struct quad {
+    double c;
+    double d;
+
+    quad() : c(0.), d(0.) {}
+
+    void initialize(const double& _c, const double& _d) {
+        this->c = _c;
+        this->d = _d;
+    }
+
+    double operator()(const double& flow) const {
+        return 2 * c * flow + d;
+    }
+
+    [[nodiscard]] double derivative(const double& flow) const {
+        return 2 * c;
+    }
+
+    [[nodiscard]] double integral(const double& flow) const {
+        return c * flow * flow + d * flow;
+    }
+
+    void update(const double& flow, double& cost, double& derivative) const {
+        cost = this->operator()(flow);
+        derivative = this->derivative(flow);
+    }
+};
+
 #endif //COST_H
