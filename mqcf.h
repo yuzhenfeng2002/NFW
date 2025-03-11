@@ -175,21 +175,7 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             dist[S[0]] = 0;
             std::vector<QCVertex> node_pred(n);
 
-            // Relax edges (Bellman-Ford)
-            // print_edges();
             auto edges = boost::edges(QCgraph);
-
-            // for (auto eit = edges.first; eit != edges.second; ++eit) {
-            //     QCEdge e = *eit;
-            //     auto& edge_info = QCgraph[e];
-            //     QCVertex u = source(e, QCgraph);
-            //     QCVertex v = target(e, QCgraph);
-            //     double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
-            //     double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
-            //     std::cout << u << " " << v << " " << cost << " " << reverse_cost << std::endl;
-            // }
-
-
             for (size_t i = 0; i < n; ++i) {
                 for (auto eit = edges.first; eit != edges.second; ++eit) {
                     QCEdge e = *eit;

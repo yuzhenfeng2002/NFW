@@ -8,6 +8,7 @@
 #include "graph.h"
 #include "demand.h"
 #include "mqcf.h"
+#include "cost.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 
 template<typename cost_type>
@@ -122,11 +123,11 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             // }
             // UE_GP<quad> sub_ue_fw(subgraph, sub_od_set);
             // sub_ue_fw.initialization();
-            // sub_ue_fw.gradient_projection(100, 1e-6);
+            // sub_ue_fw.gradient_projection(10000, eps * 0.1);
             // sub_ue_fw.print_link_flow();
             /* For debugging end*/
 
-            mqcf.basic_algorithm(1000, eps * 0.1);
+            mqcf.basic_algorithm(1000000, eps * 0.0001);
             auto qc_edges = boost::edges(mqcf.QCgraph);
 
             od_set.new_link_flows[i].resize(graph.num_vertices, graph.num_vertices, false);
@@ -143,7 +144,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps * 0.1);
+        double step_size = exact_line_search(graph, eps * 0.0001);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;

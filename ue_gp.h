@@ -6,6 +6,7 @@
 #define UE_GP_H
 
 #include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/graph/bellman_ford_shortest_paths.hpp>
 #include <iostream>
 #include "graph.h"
 #include "demand.h"
@@ -129,6 +130,29 @@ void shortest_path(std::vector<double>& distances,
     auto distance_map = boost::make_iterator_property_map(distances.begin(), boost::get(boost::vertex_index, graph.g));
     auto weight_map = boost::get(&edge_info<cost_type>::cost, graph.g);
     boost::dijkstra_shortest_paths(graph.g, origin, boost::distance_map(distance_map).predecessor_map(predecessor_map).weight_map(weight_map));
+
+    /* Bellman-Ford algorithm for debugging start */
+    // for (size_t i = 0; i < distances.size(); ++i) {
+    //     distances[i] = std::numeric_limits<double>::max();
+    // }
+    // distances[origin] = 0;
+    // auto vertices = boost::vertices(graph.g);
+    // auto edges = boost::edges(graph.g);
+    // int n = boost::num_vertices(graph.g);
+    // for (size_t i = 0; i < n; ++i) {
+    //     for (auto eit = edges.first; eit != edges.second; ++eit) {
+    //         auto e = *eit;
+    //         auto& edge_info = graph.g[e];
+    //         auto u = source(e, graph.g);
+    //         auto v = target(e, graph.g);
+    //         double cost = edge_info.cost;
+    //         if (distances[u] + cost < distances[v]) {
+    //             distances[v] = distances[u] + cost;
+    //             predecessors[v] = u;
+    //         }
+    //     }
+    // }
+    /* Bellman-Ford algorithm for debugging end */
 }
 
 template<typename cost_type>
