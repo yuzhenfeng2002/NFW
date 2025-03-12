@@ -185,7 +185,9 @@ inline void dijkstra_for_MQCF(const QCGraph& QCgraph, const QCVertex& origin, st
     std::vector<bool> visited(boost::num_vertices(QCgraph), false);
     const double inf = std::numeric_limits<double>::max();
 
-    dist.assign(num_vertices(QCgraph), inf);
+    std::vector<double> modified_dist(boost::num_vertices(QCgraph), inf);
+    modified_dist.assign(num_vertices(QCgraph), inf);
+    modified_dist[origin] = 0;
     dist[origin] = 0;
     visited[origin] = true;
     std::priority_queue<VertexCostPair, std::vector<VertexCostPair>, std::greater<VertexCostPair>> pq;
@@ -202,13 +204,15 @@ inline void dijkstra_for_MQCF(const QCGraph& QCgraph, const QCVertex& origin, st
             QCVertex v = boost::target(e, QCgraph);
             if (visited[v]) continue;
             const auto& edge_info = QCgraph[e];
-            double modified_cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d - QCgraph[v].pi + QCgraph[u].pi;
+            double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
+            double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
 
-            if (dist[u] + modified_cost < dist[v]) {
-                dist[v] = dist[u] + modified_cost;
+            if (modified_dist[u] + modified_cost < modified_dist[v]) {
+                modified_dist[v] = modified_dist[u] + modified_cost;
+                dist[v] = dist[u] + cost;
                 pred[v] = {e, false};
             }
-            pq.push({dist[v], v});
+            pq.push({modified_dist[u] + modified_cost, v});
         }
 
         auto in_edges = boost::in_edges(u, QCgraph);
@@ -218,13 +222,15 @@ inline void dijkstra_for_MQCF(const QCGraph& QCgraph, const QCVertex& origin, st
             if (visited[v]) continue;
             const auto& edge_info = QCgraph[e];
             if (edge_info.flow < Delta) continue;
-            double modified_cost = - 2 * edge_info.c * (edge_info.flow - Delta) - edge_info.d - QCgraph[v].pi + QCgraph[u].pi;
+            double cost = - 2 * edge_info.c * (edge_info.flow - Delta) - edge_info.d;
+            double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
 
-            if (dist[u] + modified_cost < dist[v]) {
-                dist[v] = dist[u] + modified_cost;
+            if (modified_dist[u] + modified_cost < modified_dist[v]) {
+                modified_dist[v] = modified_dist[u] + modified_cost;
+                dist[v] = dist[u] + cost;
                 pred[v] = {e, true};
             }
-            pq.push({dist[v], v});
+            pq.push({modified_dist[u] + modified_cost, v});
         }
     }
 }
@@ -243,10 +249,14 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
 
     bellman_ford_for_MQCF(QCgraph, origin, dist, pred, Delta);
     update_potentials(dist);
+    if (!check_potentials(Delta)) {
+        throw std::runtime_error("Potential check failed");
+    }
 
     while (Delta > epsilon / (2 * n + m + 1) && iteration < max_iter) {
         iteration += 1;
         // Main phase loop
+        int k = 0;
         while (true) {
             // Find S(Δ) and T(Δ)
             std::vector<QCVertex> S, T;
@@ -258,8 +268,17 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
 
             if (S.empty() || T.empty()) break;
 
-            bellman_ford_for_MQCF(QCgraph, S[0], dist, pred, Delta);
+            // std::vector<int> pred_node(n);
+            // bellman_ford_for_MQCF(QCgraph, S[0], dist, pred, Delta);
+            // for (size_t i = 1; i < n; ++i) {
+            //     pred_node[i] = pred[i].first.m_source == i ? pred[i].first.m_target : pred[i].first.m_source;
+            // }
+            // std::vector<int> tmp_pred_node(n);
+            // std::vector<double> tmp(n, INFINITY);
             dijkstra_for_MQCF(QCgraph, S[0], dist, pred, Delta);
+            // for (size_t i = 1; i < n; ++i) {
+            //     tmp_pred_node[i] = pred[i].first.m_source == i ? pred[i].first.m_target : pred[i].first.m_source;
+            // }
             update_potentials(dist);
 
             if (dist[T[0]] != INFINITY) {
@@ -268,37 +287,11 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             if (!check_potentials(Delta)) {
                 throw std::runtime_error("Potential check failed");
             }
+            k++;
         }
 
-        std::vector<double> dist(n, INFINITY);
-        std::vector<std::pair<QCEdge, bool>> pred(n);
-        dist[origin] = 0;
-        std::vector<QCVertex> node_pred(n);
-        auto edges = boost::edges(QCgraph);
-
-        for (size_t i = 0; i < n; ++i) {
-            for (auto eit = edges.first; eit != edges.second; ++eit) {
-                QCEdge e = *eit;
-                auto& edge_info = QCgraph[e];
-                QCVertex u = source(e, QCgraph);
-                QCVertex v = target(e, QCgraph);
-                double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
-                double reverse_cost = 2 * edge_info.c * (edge_info.flow - Delta) + edge_info.d;
-                if (dist[u] + cost < dist[v]) {
-                    dist[v] = dist[u] + cost;
-                    pred[v] = {e, false};
-                    node_pred[v] = u;
-                }
-                if (edge_info.flow >= Delta){
-                    if (dist[v] - reverse_cost < dist[u]) {
-                        dist[u] = dist[v] - reverse_cost;
-                        pred[u] = {e, true};
-                        node_pred[u] = v;
-                    }
-                }
-            }
-        }
-        update_potentials(dist);  // Update node potentials
+        dijkstra_for_MQCF(QCgraph, origin, dist, pred, Delta);
+        update_potentials(dist);
 
         adjust_flow(Delta / 2);
         Delta /= 2;
