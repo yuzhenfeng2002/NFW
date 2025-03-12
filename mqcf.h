@@ -12,7 +12,7 @@
 #include <cmath>
 #include "graph.h"
 
-const double EPS_NUM = 1e-4;
+const double EPS_NUM = 1e-2;
 
 struct NodeProps {
     double demand{0};      // Node demand (b_i)

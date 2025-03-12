@@ -9,6 +9,7 @@
 #include "demand.h"
 #include "mqcf.h"
 #include "cost.h"
+#include "utils.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 
 template<typename cost_type>
@@ -34,6 +35,7 @@ public:
 private:
     void update_flow_4path(Path<cost_type> path, double old_flow, double new_flow);
     double exact_line_search(const Graph<cost_type>& graph, const double& eps);
+    double exact_line_search_fibonacci(const Graph<cost_type>& graph, const double& eps);
     double current_tstt{};
     double current_sptt{};
 };
@@ -71,6 +73,54 @@ double UE_NFW<cost_type>::exact_line_search(const Graph<cost_type> &graph, const
     return mid;
 }
 
+template<typename cost_type>
+double UE_NFW<cost_type>::exact_line_search_fibonacci(const Graph<cost_type> &graph, const double &eps) {
+    auto edges = boost::edges(graph.g);
+    auto& n = math2::F_NUM;
+    auto& F = math2::F60;
+    double a = 0.0, b = 1.0;
+    double x1 = a + static_cast<double>(F[n - 2]) / F[n] * (b - a);
+    double x2 = a + static_cast<double>(F[n - 1]) / F[n] * (b - a);
+
+    double f1 = 0.0;
+    double f2 = 0.0;
+
+    for (auto it = edges.first; it != edges.second; ++it) {
+        auto& edge_info = graph.g[*it];
+        double new_flow_mid1 = edge_info.flow * (1 - x1) + edge_info.new_flow * x1;
+        double new_flow_mid2 = edge_info.flow * (1 - x2) + edge_info.new_flow * x2;
+        f1 += edge_info.cost_fun.integral(new_flow_mid1);
+        f2 += edge_info.cost_fun.integral(new_flow_mid2);
+    }
+
+    for (int k = n; k > 1; --k) {
+        if (f1 > f2) { // Minimum is in [x1, b]
+            a = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = a + static_cast<double>(F[k - 1]) / F[k] * (b - a);
+            f2 = 0;
+            for (auto it = edges.first; it != edges.second; ++it) {
+                auto& edge_info = graph.g[*it];
+                double new_flow_mid2 = edge_info.flow * (1 - x2) + edge_info.new_flow * x2;
+                f2 += edge_info.cost_fun.integral(new_flow_mid2);
+            }
+        } else { // Minimum is in [a, x2]
+            b = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = a + static_cast<double>(F[k - 2]) / F[k] * (b - a);
+            f1 = 0;
+            for (auto it = edges.first; it != edges.second; ++it) {
+                auto& edge_info = graph.g[*it];
+                double new_flow_mid1 = edge_info.flow * (1 - x1) + edge_info.new_flow * x1;
+                f1 += edge_info.cost_fun.integral(new_flow_mid1);
+            }
+        }
+    }
+
+    return (a + b) / 2.0;
+}
 
 template<typename cost_type>
 void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double& eps) {
@@ -80,10 +130,6 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
         auto edges = boost::edges(graph.g);
-        for (auto it = edges.first; it != edges.second; ++it) {
-            auto& edge_info = graph.g[*it];
-            edge_info.new_flow = 0;
-        }
 
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
             if (od_set.ods_from_origin[i].empty()) continue;
@@ -130,7 +176,6 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             mqcf.basic_algorithm(1000000, eps * 0.0001);
             auto qc_edges = boost::edges(mqcf.QCgraph);
 
-            od_set.new_link_flows[i].resize(graph.num_vertices, graph.num_vertices, false);
             for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
                 auto& qc_edge_info = mqcf.QCgraph[*it];
                 auto source = boost::source(*it, mqcf.QCgraph);
@@ -144,7 +189,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps * 0.0001);
+        double step_size = exact_line_search_fibonacci(graph, eps * 0.0001);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;
@@ -153,31 +198,18 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             auto& edge_info = graph.g[edge];
             edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
             current_tstt += edge_info.flow * edge_info.cost;
-        }
-
-        for (size_t i = 0; i < od_set.link_flows.size(); ++i) {
-            od_set.link_flows[i] = od_set.link_flows[i] * (1 - step_size) + od_set.new_link_flows[i] * step_size;
+            edge_info.new_flow = 0;
         }
 
         std::vector<double> distances(boost::num_vertices(graph.g));
         std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
-        int last_origin_id = -1;
-
-        for (auto& od : od_set.od_pairs) {
-            auto origin = od.origin;
-            auto destination = od.destination;
-            auto flow = od.flow;
-
-            if (last_origin_id != origin) {
-                NFW_shortest_path(distances, predecessors, graph, origin);
-                last_origin_id = origin;
+        for (size_t i = 0; i < od_set.link_flows.size(); ++i) {
+            if (od_set.ods_from_origin[i].empty()) continue;
+            od_set.link_flows[i] = od_set.link_flows[i] * (1 - step_size) + od_set.new_link_flows[i] * step_size;
+            NFW_shortest_path(distances, predecessors, graph, i);
+            for (auto& od : od_set.ods_from_origin[i]) {
+                current_sptt += od->flow * distances[od->destination];
             }
-
-            Path<cost_type> path(graph);
-            path.flow = flow;
-            path.initialize(graph, predecessors, origin, destination);
-            path.update_cost(graph);
-            current_sptt += flow * path.cost;
         }
 
         error = std::abs(current_tstt - current_sptt) / current_sptt;
