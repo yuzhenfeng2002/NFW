@@ -114,7 +114,7 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps);
+        double step_size = exact_line_search(graph, eps * 0.0001);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;

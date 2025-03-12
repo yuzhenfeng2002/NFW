@@ -41,6 +41,7 @@ template<typename cost_type>
 void UE_GP<cost_type>::gradient_projection(const int& max_iter_num, const double& eps, const double& step_size) {
     int num_iterations = 0;
     double error = std::numeric_limits<double>::max();
+    std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     while (num_iterations < max_iter_num && error > eps) {
         std::vector<double> distances(graph.num_vertices);
         std::vector<typename Graph<cost_type>::vertex_type> predecessors(graph.num_vertices);
@@ -116,8 +117,8 @@ void UE_GP<cost_type>::gradient_projection(const int& max_iter_num, const double
         }
         num_iterations++;
         error = std::abs(current_tstt - current_sptt) / current_sptt;
-        if (num_iterations % 100 == 0) {
-            std::cout << "Iteration: " << num_iterations << "\t <<<<< \t" << " Error: " << error << std::endl;
+        if (num_iterations % 1 == 0) {
+            std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
         }
     }
 }

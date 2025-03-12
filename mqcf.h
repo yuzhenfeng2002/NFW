@@ -237,7 +237,7 @@ inline void dijkstra_for_MQCF(const QCGraph& QCgraph, const QCVertex& origin, st
 
 template<typename cost_type>
 void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
-    double Delta = compute_initial_delta();
+    double Delta = compute_initial_delta() * 32;
 
     int n = boost::num_vertices(QCgraph);
     int m = boost::num_edges(QCgraph);
