@@ -10,6 +10,7 @@
 #include "mqcf.h"
 #include "cost.h"
 #include "utils.h"
+#include "params.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 
 template<typename cost_type>
@@ -76,7 +77,7 @@ double UE_NFW<cost_type>::exact_line_search(const Graph<cost_type> &graph, const
 
 template<typename cost_type>
 double UE_NFW<cost_type>::exact_line_search_fibonacci(const Graph<cost_type> &graph, const double &eps) {
-    auto& n = math2::F_NUM;
+    auto& n = LINE_SEARCH_F_NUM;
     auto& F = math2::F60;
     double a = 0.0, b = 1.0;
     double x1 = a + static_cast<double>(F[n - 2]) / F[n] * (b - a);
