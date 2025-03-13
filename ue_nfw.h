@@ -12,6 +12,7 @@
 #include "utils.h"
 #include "params.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <thread>
 
 template<typename cost_type>
 void NFW_shortest_path(std::vector<double>& distances,
@@ -130,13 +131,36 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     std::vector<double> distances(boost::num_vertices(graph.g));
     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
+    int num_sources = od_set.ods_from_origin.size();
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
 
+        std::vector<MQCF<cost_type>> all_mqcf(num_sources);
+        unsigned num_threads = std::min(std::thread::hardware_concurrency(), static_cast<unsigned>(num_sources));
+        std::vector<std::thread> threads;
+
+        auto worker = [&](int start, int end) {
+            for (int i = start; i < end; ++i) {
+
+                if (od_set.ods_from_origin[i].empty()) continue;
+                MQCF<cost_type> mqcf(graph, od_set, i);
+                mqcf.basic_algorithm(1000000, eps * 0.0001);
+                all_mqcf[i] = std::move(mqcf);
+            }
+        };
+
+        size_t chunk = num_sources / num_threads;
+        size_t remainder = num_sources % num_threads;
+        size_t start_idx = 0;
+        for (unsigned t = 0; t < num_threads; ++t) {
+            size_t end_idx = start_idx + chunk + (t < remainder ? 1 : 0);
+            threads.emplace_back(worker, start_idx, end_idx);
+            start_idx = end_idx;
+        }
+        for (auto& t : threads) t.join();
+
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
             if (od_set.ods_from_origin[i].empty()) continue;
-            MQCF<cost_type> mqcf(graph, od_set, i);
-
             /* For debugging start*/
             // Graph<quad> subgraph;
             // subgraph.num_edges = boost::num_vertices(graph.g);
@@ -174,8 +198,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             // sub_ue_fw.gradient_projection(10000, eps * 0.1);
             // sub_ue_fw.print_link_flow();
             /* For debugging end*/
-
-            mqcf.basic_algorithm(1000000, eps * 0.0001);
+            MQCF<cost_type> mqcf = all_mqcf[i];
             auto qc_edges = boost::edges(mqcf.QCgraph);
 
             for (auto it = qc_edges.first; it != qc_edges.second; ++it) {

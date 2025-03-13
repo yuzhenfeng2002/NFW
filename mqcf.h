@@ -39,6 +39,7 @@ public:
     int m, n;
     std::pair<boost::graph_traits<QCGraph>::edge_iterator, boost::graph_traits<QCGraph>::edge_iterator> qc_edges;
 
+    MQCF() : origin(0), m(0), n(0) {}
     MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int& origin);
 
     void basic_algorithm(int max_iter=100, double epsilon=1e-6);
