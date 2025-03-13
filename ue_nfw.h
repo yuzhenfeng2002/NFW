@@ -132,6 +132,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     int num_sources = od_set.ods_from_origin.size();
+    double step_size = 1;
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
 
@@ -141,7 +142,6 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
         auto worker = [&](int start, int end) {
             for (int i = start; i < end; ++i) {
-
                 if (od_set.ods_from_origin[i].empty()) continue;
                 MQCF<cost_type> mqcf(graph, od_set, i);
                 mqcf.basic_algorithm(1000000, eps * 0.0001);
@@ -213,8 +213,8 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             }
         }
 
-        // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search_fibonacci(graph);
+        // step_size = 2.0 / (num_iterations + 2);
+        step_size = exact_line_search_fibonacci(graph);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;

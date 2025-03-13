@@ -263,7 +263,7 @@ double MQCF<cost_type>::compute_initial_delta() {
                 two_c += edge_info.c * 2;
                 d += edge_info.d;
             }
-            Delta = std::max(Delta, -d / two_c + 1);
+            Delta = std::max(Delta, -d / two_c);
         }
     } while (true);
     update_potentials(dist);
@@ -274,7 +274,7 @@ template<typename cost_type>
 void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
     double Delta = compute_initial_delta();
     int iteration = 0;
-    std::vector<double> dist(n, INFINITY);
+    std::vector<double> dist(n, INF);
     std::vector<std::pair<QCEdge, bool>> pred(n);
     auto vertices = boost::vertices(QCgraph);
     while (Delta > epsilon / (2 * n + m + 1) && iteration < max_iter) {
