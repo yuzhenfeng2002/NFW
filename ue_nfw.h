@@ -38,7 +38,7 @@ public:
 private:
     void update_flow_4path(Path<cost_type> path, double old_flow, double new_flow);
     double exact_line_search(const Graph<cost_type>& graph, const double& eps);
-    double exact_line_search_fibonacci(const Graph<cost_type>& graph, const double& eps);
+    double exact_line_search_fibonacci(const Graph<cost_type>& graph);
     double current_tstt{};
     double current_sptt{};
 };
@@ -76,7 +76,7 @@ double UE_NFW<cost_type>::exact_line_search(const Graph<cost_type> &graph, const
 }
 
 template<typename cost_type>
-double UE_NFW<cost_type>::exact_line_search_fibonacci(const Graph<cost_type> &graph, const double &eps) {
+double UE_NFW<cost_type>::exact_line_search_fibonacci(const Graph<cost_type> &graph) {
     auto& n = LINE_SEARCH_F_NUM;
     auto& F = math2::F60;
     double a = 0.0, b = 1.0;
@@ -191,7 +191,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search_fibonacci(graph, eps * 0.0001);
+        double step_size = exact_line_search_fibonacci(graph);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;
