@@ -23,6 +23,9 @@ template<typename cost_type> struct edge_info {
 
     double new_flow{0.};
 
+    std::vector<double> orgin_flows;
+    std::vector<double> origin_new_flows;
+
     edge_info() : flow(0.), cost(0.), cost_derivative(0.) {}
 
     void update_only_flow(const double& new_flow) {

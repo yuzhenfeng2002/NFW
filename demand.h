@@ -82,8 +82,6 @@ class OD_set {
 public:
     std::vector<OD<cost_type>> od_pairs;
     std::vector<std::vector<OD<cost_type>*>> ods_from_origin;
-    std::vector<boost::numeric::ublas::compressed_matrix<double>> link_flows;
-    std::vector<boost::numeric::ublas::compressed_matrix<double>> new_link_flows;
     int num_od_pairs{0};
 
     void add_od_pair(const typename Graph<cost_type>::vertex_type& origin,
@@ -92,15 +90,6 @@ public:
         OD<cost_type> od(origin, destination, flow);
         od_pairs.push_back(od);
         num_od_pairs++;
-    }
-
-    void initialize_link_flow_matrices(int num_vertices) {
-        link_flows.resize(num_vertices);
-        new_link_flows.resize(num_vertices);
-        for (int i = 0; i < num_vertices; ++i) {
-            link_flows[i].resize(num_vertices, num_vertices, false);
-            new_link_flows[i].resize(num_vertices, num_vertices, false);
-        }
     }
 };
 

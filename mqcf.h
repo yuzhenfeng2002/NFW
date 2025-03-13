@@ -80,7 +80,7 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         qc_edge_info.c = edge_info.cost_derivative / 2;
         qc_edge_info.d = edge_info.cost;
 
-        qc_edge_info.d -= edge_info.cost_derivative * od_set.link_flows[origin](source, target);
+        qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[origin];
     }
 }
 
