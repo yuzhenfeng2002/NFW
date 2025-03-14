@@ -132,25 +132,28 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     int num_sources = od_set.ods_from_origin.size();
+    unsigned num_threads;
+    if (MULTI_THREAD) {
+        num_threads = std::min(std::thread::hardware_concurrency(), static_cast<unsigned>(num_sources));
+    }
+    else num_threads = 1;
+    size_t chunk = num_sources / num_threads;
+    size_t remainder = num_sources % num_threads;
+    std::vector<MQCF<cost_type>> all_mqcf(num_sources);
     double step_size = 1;
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
 
-        std::vector<MQCF<cost_type>> all_mqcf(num_sources);
-        unsigned num_threads = std::min(std::thread::hardware_concurrency(), static_cast<unsigned>(num_sources));
         std::vector<std::thread> threads;
-
         auto worker = [&](int start, int end) {
             for (int i = start; i < end; ++i) {
                 if (od_set.ods_from_origin[i].empty()) continue;
                 MQCF<cost_type> mqcf(graph, od_set, i);
-                mqcf.basic_algorithm(1000000, eps * 0.0001);
+                mqcf.basic_algorithm(1000000, eps * 0.1);
                 all_mqcf[i] = std::move(mqcf);
             }
         };
 
-        size_t chunk = num_sources / num_threads;
-        size_t remainder = num_sources % num_threads;
         size_t start_idx = 0;
         for (unsigned t = 0; t < num_threads; ++t) {
             size_t end_idx = start_idx + chunk + (t < remainder ? 1 : 0);
