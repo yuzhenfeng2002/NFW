@@ -148,7 +148,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         auto worker = [&](int start, int end) {
             for (int i = start; i < end; ++i) {
                 if (od_set.ods_from_origin[i].empty()) continue;
-                MQCF<cost_type> mqcf(graph, od_set, i);
+                MQCF<cost_type> mqcf(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
                 mqcf.basic_algorithm(1000000, eps * 0.1);
                 all_mqcf[i] = std::move(mqcf);
             }
@@ -235,7 +235,7 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
         for (size_t i = 0; i < od_set.ods_from_origin.size(); ++i) {
             if (od_set.ods_from_origin[i].empty()) continue;
-            NFW_shortest_path(distances, predecessors, graph, i);
+            NFW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
             for (auto& od : od_set.ods_from_origin[i]) {
                 current_sptt += od->flow * distances[od->destination];
             }
@@ -254,20 +254,21 @@ void UE_NFW<cost_type>::initialization() {
     std::vector<double> distances(boost::num_vertices(graph.g));
     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
 
+    int num_of_sources = od_set.ods_from_origin.size();
     for (auto it = edges.first; it != edges.second; ++it) {
         auto edge = *it;
         auto& edge_info = graph.g[edge];
-        edge_info.origin_new_flows.resize(graph.num_vertices);
-        edge_info.orgin_flows.resize(graph.num_vertices);
+        edge_info.origin_new_flows.resize(num_of_sources);
+        edge_info.orgin_flows.resize(num_of_sources);
     }
 
     for (size_t i = 0; i < od_set.ods_from_origin.size(); ++i) {
         if (od_set.ods_from_origin[i].empty()) continue;
-        NFW_shortest_path(distances, predecessors, graph, i);
+        NFW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
         for (auto& od : od_set.ods_from_origin[i]) {
             Path<cost_type> path(graph);
             path.flow = od->flow;
-            path.initialize(graph, predecessors, i, od->destination);
+            path.initialize(graph, predecessors, od->origin, od->destination);
             update_flow_4path(path, 0, od->flow);
             for (auto& edge : path.edge_list) {
                 auto& edge_info = graph.g[edge];

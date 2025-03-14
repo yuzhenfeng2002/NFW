@@ -40,7 +40,7 @@ public:
     std::pair<boost::graph_traits<QCGraph>::edge_iterator, boost::graph_traits<QCGraph>::edge_iterator> qc_edges;
 
     MQCF() : origin(0), m(0), n(0) {}
-    MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int& origin);
+    MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx);
 
     void basic_algorithm(int max_iter=100, double epsilon=1e-6);
 private:
@@ -54,7 +54,7 @@ private:
 };
 
 template<typename cost_type>
-MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int& origin) {
+MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx) {
     this->origin = origin;
     m = boost::num_vertices(graph.g);
     n = boost::num_edges(graph.g);
@@ -64,7 +64,7 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         boost::add_vertex(QCgraph);
     }
 
-    for (auto od : od_set.ods_from_origin[origin]) {
+    for (auto od : od_set.ods_from_origin[idx]) {
         auto destination = od->destination;
         auto flow = od->flow;
         QCgraph[destination].demand += flow;
@@ -83,7 +83,7 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         auto& qc_edge_info = QCgraph[qc_edge];
         qc_edge_info.c = edge_info.cost_derivative / 2;
         qc_edge_info.d = edge_info.cost;
-        qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[origin];
+        qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[idx];
     }
 
     qc_edges = boost::edges(QCgraph);
