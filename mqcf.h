@@ -41,6 +41,7 @@ public:
 
     MQCF() : origin(0), m(0), n(0) {}
     MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx);
+    void update_graph(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx);
 
     void basic_algorithm(int max_iter=100, double epsilon=1e-6);
 private:
@@ -68,25 +69,40 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
         auto destination = od->destination;
         auto flow = od->flow;
         QCgraph[destination].demand += flow;
-        QCgraph[destination].excess -= flow;
         QCgraph[origin].demand -= flow;
-        QCgraph[origin].excess += flow;
     }
 
     for (auto ep = boost::edges(graph.g); ep.first != ep.second; ++ep.first) {
         auto e = *ep.first;
         auto source = boost::source(e, graph.g);
         auto target = boost::target(e, graph.g);
-        auto& edge_info = graph.g[e];
-
-        QCEdge qc_edge = boost::add_edge(source, target, QCgraph).first;
-        auto& qc_edge_info = QCgraph[qc_edge];
-        qc_edge_info.c = edge_info.cost_derivative / 2;
-        qc_edge_info.d = edge_info.cost;
-        qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[idx];
+        boost::add_edge(source, target, QCgraph);
     }
 
     qc_edges = boost::edges(QCgraph);
+}
+
+template<typename cost_type>
+void MQCF<cost_type>::update_graph(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx) {
+    QCgraph[origin].excess = - QCgraph[origin].demand;
+    for (auto od : od_set.ods_from_origin[idx]) {
+        auto destination = od->destination;
+        QCgraph[destination].excess = - QCgraph[destination].demand;
+    }
+    qc_edges = boost::edges(QCgraph);
+    for (auto ep = qc_edges; ep.first != ep.second; ++ep.first) {
+        auto e = *ep.first;
+        auto source = boost::source(e, graph.g);
+        auto target = boost::target(e, graph.g);
+        auto& qc_edge_info = QCgraph[e];
+
+        auto edge = boost::edge(source, target, graph.g).first;
+        auto& edge_info = graph.g[edge];
+        qc_edge_info.c = edge_info.cost_derivative / 2;
+        qc_edge_info.d = edge_info.cost;
+        qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[idx];
+        qc_edge_info.flow = 0;
+    }
 }
 
 template<typename cost_type>

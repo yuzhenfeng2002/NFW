@@ -140,6 +140,9 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     size_t chunk = num_sources / num_threads;
     size_t remainder = num_sources % num_threads;
     std::vector<MQCF<cost_type>> all_mqcf(num_sources);
+    for (int i = 0; i < num_sources; ++i) {
+        all_mqcf[i] = MQCF<cost_type>(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
+    }
     double step_size = 1;
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
@@ -148,9 +151,9 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         auto worker = [&](int start, int end) {
             for (int i = start; i < end; ++i) {
                 if (od_set.ods_from_origin[i].empty()) continue;
-                MQCF<cost_type> mqcf(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
-                mqcf.basic_algorithm(1000000, eps * 0.1);
-                all_mqcf[i] = std::move(mqcf);
+                MQCF<cost_type>* mqcf = &all_mqcf[i];
+                mqcf->update_graph(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
+                mqcf->basic_algorithm(1000000, eps * 0.1);
             }
         };
 
@@ -161,6 +164,14 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             start_idx = end_idx;
         }
         for (auto& t : threads) t.join();
+
+        /* Single thread version */
+        // for (int i = 0; i < num_sources; ++i) {
+        //     if (od_set.ods_from_origin[i].empty()) continue;
+        //     MQCF<cost_type>* mqcf = &all_mqcf[i];
+        //     mqcf->update_graph(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
+        //     mqcf->basic_algorithm(1000000, eps * 0.1);
+        // }
 
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
             if (od_set.ods_from_origin[i].empty()) continue;
@@ -201,13 +212,13 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
             // sub_ue_fw.gradient_projection(10000, eps * 0.1);
             // sub_ue_fw.print_link_flow();
             /* For debugging end*/
-            MQCF<cost_type> mqcf = all_mqcf[i];
-            auto qc_edges = boost::edges(mqcf.QCgraph);
+            MQCF<cost_type>* mqcf = &all_mqcf[i];
+            auto qc_edges = mqcf->qc_edges;
 
             for (auto it = qc_edges.first; it != qc_edges.second; ++it) {
-                auto& qc_edge_info = mqcf.QCgraph[*it];
-                auto source = boost::source(*it, mqcf.QCgraph);
-                auto target = boost::target(*it, mqcf.QCgraph);
+                auto& qc_edge_info = mqcf->QCgraph[*it];
+                auto source = boost::source(*it, mqcf->QCgraph);
+                auto target = boost::target(*it, mqcf->QCgraph);
 
                 auto edge = boost::edge(source, target, graph.g).first;
                 auto& edge_info = graph.g[edge];
