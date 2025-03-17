@@ -48,7 +48,7 @@ public:
     void basic_algorithm(int max_iter=100, double epsilon=1e-6);
 private:
     double compute_initial_delta();
-    void dijkstra_for_MQCF(const QCVertex& s, std::vector<double>& dist, std::vector<std::pair<QCEdge, bool>>& pred, double Delta);
+    void dijkstra_for_MQCF(const QCVertex& s, QCVertex& t, std::vector<double>& dist, std::vector<std::pair<QCEdge, bool>>& pred, double Delta);
     void adjust_flow(const double& delta);
     void augment_flow(const std::vector<std::pair<QCEdge, bool>>& pred, double delta, QCVertex& s, QCVertex& t);
     void update_potentials(const std::vector<double>& dist);
@@ -60,8 +60,8 @@ private:
 template<typename cost_type>
 MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx) {
     this->origin = origin;
-    m = boost::num_vertices(graph.g);
-    n = boost::num_edges(graph.g);
+    n = boost::num_vertices(graph.g);
+    m = boost::num_edges(graph.g);
 
     for (auto vp = boost::vertices(graph.g); vp.first != vp.second; ++vp.first) {
         auto v = *vp.first;
@@ -215,7 +215,7 @@ inline std::pair<bool, std::vector<QCEdge>> bellman_ford_for_MQCF(const QCGraph&
 }
 
 template<typename cost_type>
-void MQCF<cost_type>::dijkstra_for_MQCF(const QCVertex& s, std::vector<double>& dist, std::vector<std::pair<QCEdge, bool>>& pred, double Delta) {
+void MQCF<cost_type>::dijkstra_for_MQCF(const QCVertex& s, QCVertex& t, std::vector<double>& dist, std::vector<std::pair<QCEdge, bool>>& pred, double Delta) {
     typedef std::pair<double, QCVertex> VertexCostPair;
     std::vector<bool> visited(boost::num_vertices(QCgraph), false);
 
@@ -229,8 +229,28 @@ void MQCF<cost_type>::dijkstra_for_MQCF(const QCVertex& s, std::vector<double>& 
         QCVertex u = pq.top().second;
         pq.pop();
         if (visited[u]) continue;
-        visited[u] = true;
 
+        /* Bug should be fixed here */
+        // if (QCgraph[u].is_T) {
+        //     t = u;
+        //     auto vertices = boost::vertices(QCgraph);
+        //     double alpha = dist[u] - QCgraph[u].pi;
+        //     while (!pq.empty()) {
+        //         QCVertex v = pq.top().second;
+        //         pq.pop();
+        //         if (dist[v] < INF) {
+        //             alpha = std::min(alpha, dist[v] - QCgraph[v].pi);
+        //         }
+        //     }
+        //     for (auto vit = vertices.first; vit != vertices.second; ++vit) {
+        //         if (!visited[*vit]) {
+        //             QCgraph[*vit].pi += alpha;
+        //         }
+        //     }
+        //     break;
+        // }
+
+        visited[u] = true;
         auto out_edges = boost::out_edges(u, QCgraph);
         for (auto eit = out_edges.first; eit != out_edges.second; ++eit) {
             QCEdge e = *eit;
@@ -269,6 +289,7 @@ void MQCF<cost_type>::dijkstra_for_MQCF(const QCVertex& s, std::vector<double>& 
         QCgraph[u].pi = dist[u];
     }
     QCgraph[s].pi = dist[s];
+    // if (!check_potentials(Delta)) throw std::runtime_error("Potentials are not consistent!");
 }
 
 template<typename cost_type>
@@ -319,14 +340,14 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
         while (true) {
             // Find S(Δ) and T(Δ)
             if (S.empty() || T.empty()) break;
-            if (!QCgraph[S[0]].is_S) {
+            while (!S.empty() && !QCgraph[S[0]].is_S) {
                 S.erase(S.begin());
-                if (S.empty()) break;
             }
-            if (!QCgraph[T[0]].is_T) {
+            if (S.empty()) break;
+            while (!T.empty() && !QCgraph[T[0]].is_T) {
                 T.erase(T.begin());
-                if (T.empty()) break;
             }
+            if (T.empty()) break;
             // std::vector<int> pred_node(n);
             // bellman_ford_for_MQCF(QCgraph, S[0], dist, pred, Delta);
             // for (size_t i = 1; i < n; ++i) {
@@ -334,14 +355,15 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
             // }
             // std::vector<int> tmp_pred_node(n);
             // std::vector<double> tmp(n, INFINITY);
-            dijkstra_for_MQCF(S[0], dist, pred, Delta);
+            QCVertex t = T[0];
+            dijkstra_for_MQCF(S[0], t, dist, pred, Delta);
             // for (size_t i = 1; i < n; ++i) {
             //     tmp_pred_node[i] = pred[i].first.m_source == i ? pred[i].first.m_target : pred[i].first.m_source;
             // }
-            augment_flow(pred, Delta, S[0], T[0]);
+            augment_flow(pred, Delta, S[0], t);
         }
-
-        dijkstra_for_MQCF(origin, dist, pred, Delta);
+        QCVertex nul = -1;
+        dijkstra_for_MQCF(origin, nul, dist, pred, Delta);
         adjust_flow(Delta / 2);
         Delta /= 2;
     }
