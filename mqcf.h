@@ -19,6 +19,8 @@ struct NodeProps {
     double demand{0};      // Node demand (b_i)
     double excess{0};      // Current excess (ρ_f(i) - b_i)
     double pi{0};          // Dual variable (π_i)
+    bool is_S{false};
+    bool is_T{false};
 };
 
 struct EdgeProps {
@@ -139,18 +141,19 @@ void MQCF<cost_type>::augment_flow(const std::vector<std::pair<QCEdge, bool>>& p
         if (is_inverse) {
             // QCgraph[orig].reverse_flow += delta;
             QCgraph[e].flow -= delta;
-
-            QCgraph[source(e, QCgraph)].excess += delta;
-            QCgraph[target(e, QCgraph)].excess -= delta;
         } else {
             // Forward edge: increase flow
             QCgraph[e].flow += delta;
-
-            QCgraph[source(e, QCgraph)].excess -= delta;
-            QCgraph[target(e, QCgraph)].excess += delta;
         }
-
         cur = prev;
+    }
+    QCgraph[s].excess -= delta;
+    if (QCgraph[s].excess < delta) {
+        QCgraph[s].is_S = false;
+    }
+    QCgraph[t].excess += delta;
+    if (QCgraph[t].excess > -delta) {
+        QCgraph[t].is_T = false;
     }
 }
 
@@ -296,14 +299,29 @@ void MQCF<cost_type>::basic_algorithm(int max_iter, double epsilon) {
     while (Delta > epsilon / (2 * n + m + 1) && iteration < max_iter) {
         iteration += 1;
         // Main phase loop
+        std::vector<QCVertex> S, T;
+        for (auto vit = vertices.first; vit != vertices.second; ++vit) {
+            auto& vertex_info = QCgraph[*vit];
+            if (vertex_info.excess >= Delta) {
+                vertex_info.is_S = true;
+                S.push_back(*vit);
+            } else vertex_info.is_S = false;
+            if (vertex_info.excess <= -Delta) {
+                vertex_info.is_T = true;
+                T.push_back(*vit);
+            } else vertex_info.is_T = false;
+        }
         while (true) {
             // Find S(Δ) and T(Δ)
-            std::vector<QCVertex> S, T;
-            for (auto vit = vertices.first; vit != vertices.second; ++vit) {
-                if (QCgraph[*vit].excess >= Delta) S.push_back(*vit);
-                if (QCgraph[*vit].excess <= -Delta) T.push_back(*vit);
-            }
             if (S.empty() || T.empty()) break;
+            if (!QCgraph[S[0]].is_S) {
+                S.erase(S.begin());
+                if (S.empty()) break;
+            }
+            if (!QCgraph[T[0]].is_T) {
+                T.erase(T.begin());
+                if (T.empty()) break;
+            }
             // std::vector<int> pred_node(n);
             // bellman_ford_for_MQCF(QCgraph, S[0], dist, pred, Delta);
             // for (size_t i = 1; i < n; ++i) {
