@@ -78,17 +78,18 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
     double error = std::numeric_limits<double>::max();
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     while (num_iterations < max_iter_num && error > eps) {
+        current_sptt = 0; current_tstt = 0;
         auto edges = boost::edges(graph.g);
         for (auto it = edges.first; it != edges.second; ++it) {
             auto& edge_info = graph.g[*it];
             edge_info.new_flow = 0;
+            current_tstt += edge_info.flow * edge_info.cost;
         }
 
         std::vector<double> distances(boost::num_vertices(graph.g));
         std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
         int last_origin_id = -1;
 
-        current_sptt = 0; current_tstt = 0;
         for (auto& od : od_set.od_pairs) {
             auto origin = od.origin;
             auto destination = od.destination;
@@ -113,8 +114,14 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
             }
         }
 
+        error = std::abs(current_tstt - current_sptt) / current_sptt;
+        num_iterations++;
+        if (num_iterations % 100 == 0) {
+            std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
+        }
+
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps * 0.0001);
+        double step_size = exact_line_search(graph, eps * 0.001);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;
@@ -122,13 +129,6 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
             auto target = boost::target(edge, graph.g);
             auto& edge_info = graph.g[edge];
             edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
-            current_tstt += edge_info.flow * edge_info.cost;
-        }
-
-        error = std::abs(current_tstt - current_sptt) / current_sptt;
-        num_iterations++;
-        if (num_iterations % 1 == 0) {
-            std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
         }
     }
 }
