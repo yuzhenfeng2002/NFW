@@ -88,11 +88,6 @@ MQCF<cost_type>::MQCF(const Graph<cost_type>& graph, const OD_set<cost_type>& od
 
 template<typename cost_type>
 void MQCF<cost_type>::update_graph(const Graph<cost_type>& graph, const OD_set<cost_type>& od_set, int origin, int idx) {
-    QCgraph[origin].excess = - QCgraph[origin].demand;
-    for (auto od : od_set.ods_from_origin[idx]) {
-        auto destination = od->destination;
-        QCgraph[destination].excess = - QCgraph[destination].demand;
-    }
     qc_edges = boost::edges(QCgraph);
     for (auto ep = qc_edges; ep.first != ep.second; ++ep.first) {
         auto e = *ep.first;
@@ -100,12 +95,20 @@ void MQCF<cost_type>::update_graph(const Graph<cost_type>& graph, const OD_set<c
         auto target = boost::target(e, graph.g);
         auto& qc_edge_info = QCgraph[e];
 
+        QCgraph[source].excess = 0; QCgraph[target].excess = 0;
+
         auto edge = boost::edge(source, target, graph.g).first;
         auto& edge_info = graph.g[edge];
         qc_edge_info.c = edge_info.cost_derivative / 2;
         qc_edge_info.d = edge_info.cost;
         qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[idx];
         qc_edge_info.flow = 0;
+    }
+
+    QCgraph[origin].excess = - QCgraph[origin].demand;
+    for (auto od : od_set.ods_from_origin[idx]) {
+        auto destination = od->destination;
+        QCgraph[destination].excess = - QCgraph[destination].demand;
     }
 }
 
@@ -273,12 +276,44 @@ void MQCF<cost_type>::dijkstra_for_MQCF(const QCVertex& s, QCVertex& t, std::vec
     // if (!check_potentials(Delta)) throw std::runtime_error("Potentials are not consistent!");
 }
 
+typedef std::pair<double, std::pair<QCEdge, bool>> EdgeCostPair;
+
+struct EdgeCostPairComparator {
+    bool operator()(const EdgeCostPair& a, const EdgeCostPair& b) const {
+        return a.first > b.first;
+    }
+};
+
+class DynamicOffsetEdgeQueue {
+    std::priority_queue<EdgeCostPair, std::vector<EdgeCostPair>, EdgeCostPairComparator> pq;
+    double global_offset = 0.0;
+public:
+    // Automatically offset the current offset when inserting elements
+    void push(const EdgeCostPair& elem) {
+        EdgeCostPair adjusted = elem;
+        adjusted.first -= global_offset; // Stored value = original value - current offset
+        pq.push(adjusted);
+    }
+    // Get the actual maximum value (automatically add the current offset)
+    [[nodiscard]] EdgeCostPair top() const {
+        EdgeCostPair original = pq.top();
+        original.first += global_offset; // Original value
+        return original;
+    }
+    // Dynamically adjust the offset
+    void add_offset(double alpha) {
+        global_offset -= alpha; // O(1)
+    }
+    void pop() { pq.pop(); }
+    [[nodiscard]] bool empty() const { return pq.empty(); }
+    [[nodiscard]] size_t size() const { return pq.size(); }
+};
+
 template<typename cost_type>
 void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QCVertex &s, QCVertex &t, std::vector<std::pair<QCEdge, bool>> &pred, double Delta) {
-    typedef std::pair<double, std::pair<QCEdge, bool>> EdgeCostPair;
     auto vertices = boost::vertices(QCgraph);
     std::vector<bool> visited(n, false);
-    std::list<EdgeCostPair> pq;
+    DynamicOffsetEdgeQueue pq;
     for (auto u : S) {
         if (!QCgraph[u].is_S) continue;
         visited[u] = true;
@@ -291,7 +326,7 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
             const auto& edge_info = QCgraph[e];
             double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
             double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
-            pq.push_back({modified_cost, {e, false}});
+            pq.push({modified_cost, {e, false}});
         }
         for (auto eit = in_edges.first; eit != in_edges.second; ++eit) {
             QCEdge e = *eit;
@@ -301,16 +336,14 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
             if (edge_info.flow < Delta) continue;
             double cost = - 2 * edge_info.c * (edge_info.flow - Delta) - edge_info.d;
             double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
-            pq.push_back({modified_cost, {e, true}});
+            pq.push({modified_cost, {e, true}});
         }
     }
     while (!pq.empty()) {
         /* For debugging */
-        // std::cout << "Vertex\tVisited\tExcess\tPi" << std::endl;
         // for (auto vit = vertices.first; vit != vertices.second; ++vit) {
         //     std::cout << *vit << '\t' << visited[*vit] << '\t' << QCgraph[*vit].excess << '\t' << QCgraph[*vit].pi << std::endl;
         // }
-        // std::cout << "Edge\tFlow\tCost" << std::endl;
         // for (auto eit = edges.first; eit != edges.second; ++eit) {
         //     QCEdge e = *eit;
         //     auto source = boost::source(e, QCgraph);
@@ -324,19 +357,11 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
         //     }
         // }
 
-        double min_cost = std::numeric_limits<double>::max();
-        auto min_it = pq.end();
-        for (auto it = pq.begin(); it != pq.end(); ++it) {
-            if (it->first < min_cost) {
-                min_cost = it->first;
-                min_it = it;
-            }
-        }
-
-        auto alpha = min_it->first;
-        auto e = min_it->second.first;
-        auto is_reverse = min_it->second.second;
-        pq.erase(min_it);
+        auto min_edge = pq.top();
+        auto alpha = min_edge.first;
+        auto e = min_edge.second.first;
+        auto is_reverse = min_edge.second.second;
+        pq.pop();
         QCVertex u, v;
         if (is_reverse) {
             v = boost::source(e, QCgraph);
@@ -346,9 +371,7 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
         if (visited[v]) continue;
 
         if (alpha > 0) {
-            for (auto& edge_cost_pair : pq) {
-                edge_cost_pair.first -= alpha;
-            }
+            pq.add_offset(alpha);
             for (auto vit = vertices.first; vit != vertices.second; ++vit) {
                 if (!visited[*vit]) {
                     QCgraph[*vit].pi += alpha;
@@ -377,7 +400,7 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
             const auto& edge_info = QCgraph[e];
             double cost = 2 * edge_info.c * (edge_info.flow + Delta) + edge_info.d;
             double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
-            pq.push_back({modified_cost, {e, false}});
+            pq.push({modified_cost, {e, false}});
         }
         for (auto eit = in_edges.first; eit != in_edges.second; ++eit) {
             QCEdge e = *eit;
@@ -387,7 +410,7 @@ void MQCF<cost_type>::revised_dijkstra_for_MQCF(const std::list<QCVertex> &S, QC
             if (edge_info.flow < Delta) continue;
             double cost = - 2 * edge_info.c * (edge_info.flow - Delta) - edge_info.d;
             double modified_cost = cost - QCgraph[v].pi + QCgraph[u].pi;
-            pq.push_back({modified_cost, {e, true}});
+            pq.push({modified_cost, {e, true}});
         }
         visited[v] = true;
     }
