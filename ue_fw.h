@@ -7,6 +7,8 @@
 
 #include "graph.h"
 #include "demand.h"
+#include "utils.h"
+#include "params.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 
 template<typename cost_type>
@@ -24,6 +26,7 @@ public:
 private:
     void update_flow_4path(Path<cost_type> path, double old_flow, double new_flow);
     double exact_line_search(const Graph<cost_type>& graph, const double& eps);
+    double exact_line_search_fibonacci(const Graph<cost_type>& graph);
     double current_tstt{};
     double current_sptt{};
 };
@@ -71,6 +74,54 @@ double UE_FW<cost_type>::exact_line_search(const Graph<cost_type> &graph, const 
     return mid;
 }
 
+template<typename cost_type>
+double UE_FW<cost_type>::exact_line_search_fibonacci(const Graph<cost_type> &graph) {
+    auto& n = LINE_SEARCH_F_NUM;
+    auto& F = math2::F60;
+    double a = 0.0, b = 1.0;
+    double x1 = a + static_cast<double>(F[n - 2]) / F[n] * (b - a);
+    double x2 = a + static_cast<double>(F[n - 1]) / F[n] * (b - a);
+
+    double f1 = 0.0;
+    double f2 = 0.0;
+
+    auto edges = boost::edges(graph.g);
+    for (auto it = edges.first; it != edges.second; ++it) {
+        auto& edge_info = graph.g[*it];
+        double new_flow_mid1 = edge_info.flow * (1 - x1) + edge_info.new_flow * x1;
+        double new_flow_mid2 = edge_info.flow * (1 - x2) + edge_info.new_flow * x2;
+        f1 += edge_info.cost_fun.integral(new_flow_mid1);
+        f2 += edge_info.cost_fun.integral(new_flow_mid2);
+    }
+
+    for (int k = n; k > 1; --k) {
+        if (f1 > f2) { // Minimum is in [x1, b]
+            a = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = a + static_cast<double>(F[k - 1]) / F[k] * (b - a);
+            f2 = 0;
+            for (auto it = edges.first; it != edges.second; ++it) {
+                auto& edge_info = graph.g[*it];
+                double new_flow_mid2 = edge_info.flow * (1 - x2) + edge_info.new_flow * x2;
+                f2 += edge_info.cost_fun.integral(new_flow_mid2);
+            }
+        } else { // Minimum is in [a, x2]
+            b = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = a + static_cast<double>(F[k - 2]) / F[k] * (b - a);
+            f1 = 0;
+            for (auto it = edges.first; it != edges.second; ++it) {
+                auto& edge_info = graph.g[*it];
+                double new_flow_mid1 = edge_info.flow * (1 - x1) + edge_info.new_flow * x1;
+                f1 += edge_info.cost_fun.integral(new_flow_mid1);
+            }
+        }
+    }
+
+    return (a + b) / 2.0;
+}
 
 template<typename cost_type>
 void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
@@ -121,7 +172,8 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
         }
 
         // double step_size = 2.0 / (num_iterations + 2);
-        double step_size = exact_line_search(graph, eps * 0.001);
+        // double step_size = exact_line_search(graph, eps * 0.001);
+        double step_size = exact_line_search_fibonacci(graph);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;

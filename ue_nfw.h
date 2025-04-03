@@ -128,8 +128,6 @@ template<typename cost_type>
 void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double& eps) {
     int num_iterations = 0;
     double error = std::numeric_limits<double>::max();
-    std::vector<double> distances(boost::num_vertices(graph.g));
-    std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
     int num_sources = od_set.ods_from_origin.size();
     unsigned num_threads;
@@ -140,20 +138,45 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
     size_t chunk = num_sources / num_threads;
     size_t remainder = num_sources % num_threads;
     std::vector<MQCF<cost_type>> all_mqcf(num_sources);
+    std::vector<double> all_sptt(num_sources, 0);
     for (int i = 0; i < num_sources; ++i) {
         all_mqcf[i] = MQCF<cost_type>(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
     }
-    double step_size = 1;
+    double step_size = 0;
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
+
+        for (auto it = edges.first; it != edges.second; ++it) {
+            auto edge = *it;
+            auto source = boost::source(edge, graph.g);
+            auto target = boost::target(edge, graph.g);
+            auto& edge_info = graph.g[edge];
+            edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
+            for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
+                edge_info.orgin_flows[i] = edge_info.orgin_flows[i] * (1 - step_size) + edge_info.origin_new_flows[i] * step_size;
+                edge_info.origin_new_flows[i] = 0;
+            }
+            current_tstt += edge_info.flow * edge_info.cost;
+            edge_info.new_flow = 0;
+        }
 
         std::vector<std::thread> threads;
         auto worker = [&](int start, int end) {
             for (int i = start; i < end; ++i) {
                 if (od_set.ods_from_origin[i].empty()) continue;
+
+                double sptt_of_origin = 0;
+                std::vector<double> distances(boost::num_vertices(graph.g));
+                std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
+                NFW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
+                for (auto& od : od_set.ods_from_origin[i]) {
+                    sptt_of_origin += od->flow * distances[od->destination];
+                }
+                all_sptt[i] = sptt_of_origin;
+
                 MQCF<cost_type>* mqcf = &all_mqcf[i];
                 mqcf->update_graph(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
-                mqcf->basic_algorithm(1000000, eps * 0.1);
+                mqcf->basic_algorithm(1000000, eps * 0.001);
             }
         };
 
@@ -172,6 +195,16 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         //     mqcf->update_graph(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
         //     mqcf->basic_algorithm(1000000, eps * 0.1);
         // }
+
+        for (size_t i = 0; i < num_sources; ++i) {
+            current_sptt += all_sptt[i];
+        }
+
+        error = std::abs(current_tstt - current_sptt) / current_sptt;
+        num_iterations++;
+        if (num_iterations % 1 == 0) {
+            std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
+        }
 
         for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
             if (od_set.ods_from_origin[i].empty()) continue;
@@ -229,34 +262,6 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
 
         // step_size = 2.0 / (num_iterations + 2);
         step_size = exact_line_search_fibonacci(graph);
-
-        for (auto it = edges.first; it != edges.second; ++it) {
-            auto edge = *it;
-            auto source = boost::source(edge, graph.g);
-            auto target = boost::target(edge, graph.g);
-            auto& edge_info = graph.g[edge];
-            edge_info.update_flow(edge_info.flow * (1 - step_size) + edge_info.new_flow * step_size);
-            for (int i = 0; i < od_set.ods_from_origin.size(); ++i) {
-                edge_info.orgin_flows[i] = edge_info.orgin_flows[i] * (1 - step_size) + edge_info.origin_new_flows[i] * step_size;
-                edge_info.origin_new_flows[i] = 0;
-            }
-            current_tstt += edge_info.flow * edge_info.cost;
-            edge_info.new_flow = 0;
-        }
-
-        for (size_t i = 0; i < od_set.ods_from_origin.size(); ++i) {
-            if (od_set.ods_from_origin[i].empty()) continue;
-            NFW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
-            for (auto& od : od_set.ods_from_origin[i]) {
-                current_sptt += od->flow * distances[od->destination];
-            }
-        }
-
-        error = std::abs(current_tstt - current_sptt) / current_sptt;
-        num_iterations++;
-        if (num_iterations % 1 == 0) {
-            std::cout << std::setw(10) << num_iterations << std::setw(10) << error << std::endl;
-        }
     }
 }
 

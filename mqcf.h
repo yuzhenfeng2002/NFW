@@ -95,14 +95,20 @@ void MQCF<cost_type>::update_graph(const Graph<cost_type>& graph, const OD_set<c
         auto target = boost::target(e, graph.g);
         auto& qc_edge_info = QCgraph[e];
 
-        QCgraph[source].excess = 0; QCgraph[target].excess = 0;
-
         auto edge = boost::edge(source, target, graph.g).first;
         auto& edge_info = graph.g[edge];
         qc_edge_info.c = edge_info.cost_derivative / 2;
         qc_edge_info.d = edge_info.cost;
         qc_edge_info.d -= edge_info.cost_derivative * edge_info.orgin_flows[idx];
         qc_edge_info.flow = 0;
+    }
+
+    for (auto vit = boost::vertices(QCgraph); vit.first != vit.second; ++vit.first) {
+        auto v = *vit.first;
+        QCgraph[v].excess = 0;
+        QCgraph[v].pi = 0;
+        QCgraph[v].is_S = false;
+        QCgraph[v].is_T = false;
     }
 
     QCgraph[origin].excess = - QCgraph[origin].demand;
