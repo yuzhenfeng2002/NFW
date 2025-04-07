@@ -87,6 +87,9 @@ void UE_GP<cost_type>::gradient_projection(const int& max_iter_num, const double
                 if (!is_same_path) {
                     double path_old_flow = path.flow;
                     path.flow -= step_size * first_order_derivative / second_order_derivative;
+                    if (second_order_derivative == 0) {
+                        path.flow = 0;
+                    }
                     if (path.flow < 0) {
                         path.flow = 0;
                         update_flow_4path(path, path_old_flow, 0);

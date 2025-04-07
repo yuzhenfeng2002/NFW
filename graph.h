@@ -38,6 +38,7 @@ template<typename cost_type> struct edge_info {
 
     void update_flow(const double& new_flow) {
         update_only_flow(new_flow);
+        if (flow < 0) flow = 0;
         update_only_fun();
     }
 };
