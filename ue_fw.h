@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "params.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <thread>
 
 template<typename cost_type>
 class UE_FW {
@@ -128,6 +129,17 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
     int num_iterations = 0;
     double error = std::numeric_limits<double>::max();
     std::cout << std::setw(10) << "Iteration" << std::setw(10) << "Error" << std::endl;
+    int num_sources = od_set.ods_from_origin.size();
+    unsigned num_threads;
+    if (MULTI_THREAD) {
+        num_threads = std::min(std::thread::hardware_concurrency(), static_cast<unsigned>(num_sources));
+    }
+    else num_threads = 1;
+    size_t chunk = num_sources / num_threads;
+    size_t remainder = num_sources % num_threads;
+    std::vector<std::vector<Path<cost_type>>> all_origin_paths(num_sources);
+    std::vector<double> all_sptt(num_sources, 0);
+    double step_size = 0;
     while (num_iterations < max_iter_num && error > eps) {
         current_sptt = 0; current_tstt = 0;
         auto edges = boost::edges(graph.g);
@@ -137,31 +149,95 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
             current_tstt += edge_info.flow * edge_info.cost;
         }
 
-        std::vector<double> distances(boost::num_vertices(graph.g));
-        std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
-        int last_origin_id = -1;
+        std::vector<std::thread> threads;
+        auto worker = [&](int start, int end) {
+            for (int i = start; i < end; ++i) {
+                if (od_set.ods_from_origin[i].empty()) continue;
 
-        for (auto& od : od_set.od_pairs) {
-            auto origin = od.origin;
-            auto destination = od.destination;
-            auto flow = od.flow;
+                double sptt_of_origin = 0;
+                all_origin_paths[i].clear();
+                std::vector<double> distances(boost::num_vertices(graph.g));
+                std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
+                FW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
+                for (auto& od : od_set.ods_from_origin[i]) {
+                    sptt_of_origin += od->flow * distances[od->destination];
 
-            if (last_origin_id != origin) {
-                FW_shortest_path(distances, predecessors, graph, origin);
-                last_origin_id = origin;
+                    Path<cost_type> path(graph);
+                    path.flow = od->flow;
+                    path.initialize(graph, predecessors, od->origin, od->destination);
+                    path.update_cost(graph);
+                    all_origin_paths[i].push_back(path);
+                }
+                all_sptt[i] = sptt_of_origin;
             }
+        };
 
-            Path<cost_type> path(graph);
-            path.flow = flow;
-            path.initialize(graph, predecessors, origin, destination);
-            path.update_cost(graph);
-            current_sptt += flow * path.cost;
+        size_t start_idx = 0;
+        for (unsigned t = 0; t < num_threads; ++t) {
+            size_t end_idx = start_idx + chunk + (t < remainder ? 1 : 0);
+            threads.emplace_back(worker, start_idx, end_idx);
+            start_idx = end_idx;
+        }
+        for (auto& t : threads) t.join();
 
-            for (auto& edge : path.edge_list) {
-                auto source = boost::source(edge, graph.g);
-                auto target = boost::target(edge, graph.g);
-                auto& edge_info = graph.g[edge];
-                edge_info.new_flow += flow;
+        /* Single thread version */
+        // for (int i = 0; i < num_sources; ++i) {
+        //     if (od_set.ods_from_origin[i].empty()) continue;
+        //
+        //     double sptt_of_origin = 0;
+        //     all_origin_paths[i].clear();
+        //     std::vector<double> distances(boost::num_vertices(graph.g));
+        //     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
+        //     FW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
+        //     for (auto& od : od_set.ods_from_origin[i]) {
+        //         sptt_of_origin += od->flow * distances[od->destination];
+        //
+        //         Path<cost_type> path(graph);
+        //         path.flow = od->flow;
+        //         path.initialize(graph, predecessors, od->origin, od->destination);
+        //         path.update_cost(graph);
+        //         all_origin_paths[i].push_back(path);
+        //     }
+        //     all_sptt[i] = sptt_of_origin;
+        // }
+
+        // std::vector<double> distances(boost::num_vertices(graph.g));
+        // std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
+        // int last_origin_id = -1;
+        //
+        // for (auto& od : od_set.od_pairs) {
+        //     auto origin = od.origin;
+        //     auto destination = od.destination;
+        //     auto flow = od.flow;
+        //
+        //     if (last_origin_id != origin) {
+        //         FW_shortest_path(distances, predecessors, graph, origin);
+        //         last_origin_id = origin;
+        //     }
+        //
+        //     Path<cost_type> path(graph);
+        //     path.flow = flow;
+        //     path.initialize(graph, predecessors, origin, destination);
+        //     path.update_cost(graph);
+        //     current_sptt += flow * path.cost;
+        //
+        //     for (auto& edge : path.edge_list) {
+        //         auto source = boost::source(edge, graph.g);
+        //         auto target = boost::target(edge, graph.g);
+        //         auto& edge_info = graph.g[edge];
+        //         edge_info.new_flow += flow;
+        //     }
+        // }
+
+        for (size_t i = 0; i < num_sources; ++i) {
+            current_sptt += all_sptt[i];
+            for (auto& path : all_origin_paths[i]) {
+                for (auto& edge : path.edge_list) {
+                    auto source = boost::source(edge, graph.g);
+                    auto target = boost::target(edge, graph.g);
+                    auto& edge_info = graph.g[edge];
+                    edge_info.new_flow += path.flow;
+                }
             }
         }
 
@@ -173,7 +249,7 @@ void UE_FW<cost_type>::frank_wolfe(const int& max_iter_num, const double& eps) {
 
         // double step_size = 2.0 / (num_iterations + 2);
         // double step_size = exact_line_search(graph, eps * 0.001);
-        double step_size = exact_line_search_fibonacci(graph);
+        step_size = exact_line_search_fibonacci(graph);
 
         for (auto it = edges.first; it != edges.second; ++it) {
             auto edge = *it;
