@@ -191,9 +191,19 @@ void UE_NFW<cost_type>::newton_frank_wolfe(const int& max_iter_num, const double
         /* Single thread version */
         // for (int i = 0; i < num_sources; ++i) {
         //     if (od_set.ods_from_origin[i].empty()) continue;
+        //
+        //     double sptt_of_origin = 0;
+        //     std::vector<double> distances(boost::num_vertices(graph.g));
+        //     std::vector<typename Graph<cost_type>::vertex_type> predecessors(boost::num_vertices(graph.g));
+        //     NFW_shortest_path(distances, predecessors, graph, od_set.ods_from_origin[i][0]->origin);
+        //     for (auto& od : od_set.ods_from_origin[i]) {
+        //         sptt_of_origin += od->flow * distances[od->destination];
+        //     }
+        //     all_sptt[i] = sptt_of_origin;
+        //
         //     MQCF<cost_type>* mqcf = &all_mqcf[i];
         //     mqcf->update_graph(graph, od_set, od_set.ods_from_origin[i][0]->origin, i);
-        //     mqcf->basic_algorithm(1000000, eps * 0.1);
+        //     mqcf->basic_algorithm(1000000, eps * 0.001);
         // }
 
         for (size_t i = 0; i < num_sources; ++i) {
